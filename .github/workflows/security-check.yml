@@ -2,7 +2,7 @@ name: Security Check
 
 on:
   push:
-    branches: [main, dev, engine-updates]
+    branches: [main]
   pull_request:
     branches: [main]
 
