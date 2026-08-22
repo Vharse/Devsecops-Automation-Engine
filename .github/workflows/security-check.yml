@@ -15,6 +15,12 @@ jobs:
       id-token: write
       actions: read
       checks: write
-    secrets:
+    secrets: 
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
+      ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
       SONAR_HOST: ${{ secrets.SONAR_HOST }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
