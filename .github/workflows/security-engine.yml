@@ -1,0 +1,202 @@
+name: "DevSecOps Master Security Engine"
+
+on:
+  workflow_call:
+    secrets:
+      SEMGREP_APP_TOKEN:
+        required: false
+      ELASTIC_HOST:
+        required: true
+      ELASTIC_API_KEY:
+        required: false
+      SONARQUBE_HOST:
+        required: false
+      SONARQUBE_TOKEN:
+        required: false
+      AWS_ACCOUNT_ID:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+jobs:
+  sast-and-secrets:
+    name: "SAST & Secret Scanning"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semgrep SAST Scan
+        uses: semgrep/semgrep-action@v1
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  sonarqube-sast:
+    name: "SonarQube Code Quality & SAST"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: SonarQube Scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v6
+        with:
+          args: >
+            "-Dsonar.projectKey=${{ github.repository }}"
+            "-Dsonar.projectName=${{ github.event.repository.name || github.repository }}"
+            "-Dsonar.sources=."
+            "-Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/.venv/**"
+            "-Dsonar.issue.ignore.multicriteria=e1"
+            "-Dsonar.issue.ignore.multicriteria.e1.ruleKey=docker:S6596"
+            "-Dsonar.issue.ignore.multicriteria.e1.resourceKey=src/Dockerfile"
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  container-sca-sbom:
+    name: "SCA, Container Scan & SBOM"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Build Local Container Image
+        run: |
+          if [ -f "src/Dockerfile" ]; then
+            [ -f "src/requirements.txt" ] || touch src/requirements.txt
+            docker build -t local-test-image:latest -f src/Dockerfile src/
+          elif [ -f "Dockerfile" ]; then
+            [ -f "requirements.txt" ] || touch requirements.txt
+            docker build -t local-test-image:latest .
+          else
+            echo "No Dockerfile found. Skipping container build."
+          fi
+
+      - name: Trivy Container & File System Scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: "fs"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "HIGH,CRITICAL"
+          exit-code: "0"
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: "fs"
+          format: "spdx-json"
+          output: "sbom.spdx.json"
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: sbom-spdx-report
+          path: sbom.spdx.json
+
+  iac-and-policy:
+    name: "IaC & OPA Policy Enforcement"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Open Policy Agent
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Evaluate OPA Rego Policies
+        run: |
+          if [ -d "policies/opa" ]; then
+            opa eval --data policies/opa/ "data"
+          fi
+
+  repo-scorecard:
+    name: "OpenSSF Security Posture Evaluation"
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard-results.sarif
+
+  siem-telemetry:
+    name: "Ship Security Events to LOGIX SIEM"
+    needs:
+      [sast-and-secrets, container-sca-sbom, iac-and-policy, repo-scorecard]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
+      ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Healthcheck & Ingest Telemetry
+        continue-on-error: true
+        run: |
+          if [ -n "$ELASTIC_HOST" ]; then
+            curl -s --connect-timeout 10 -X POST "$ELASTIC_HOST/devsecops-pipeline-logs/_doc" \
+              -H "Authorization: ApiKey $ELASTIC_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"repository\": \"${{ github.repository }}\", \"actor\": \"${{ github.actor }}\", \"status\": \"Pipeline Run Completed\"}" || echo "SIEM Endpoint unreachable. Non-blocking skip."
+          fi
+
+      - name: Send Slack Notification
+        if: always() && env.SLACK_WEBHOOK_URL != ''
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "*DevSecOps Security Gate Result*: ${{ github.repository }}\n*Triggered by*: `${{ github.actor }}`\n*Status*: `${{ job.status }}`"
+            }

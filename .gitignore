@@ -1,0 +1,19 @@
+# Preventative Secret Protection
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.crt
+
+# Scan & Pipeline Output Artifacts (Generated during local testing)
+*.sarif
+*.spdx.json
+results.json
+
+# Development & System Files
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.DS_Store
