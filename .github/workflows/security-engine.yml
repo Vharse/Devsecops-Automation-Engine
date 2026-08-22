@@ -65,6 +65,7 @@ jobs:
             "-Dsonar.projectKey=Vharse_Devsecops-Automation-Engine"
             "-Dsonar.projectName=${{ github.event.repository.name || github.repository }}"
             "-Dsonar.organization=vharse"
+            "-Dsonar.python.version=3.13"
             "-Dsonar.sources=."
             "-Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/.venv/**"
             "-Dsonar.issue.ignore.multicriteria=e1"
