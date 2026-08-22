@@ -64,6 +64,7 @@ jobs:
           args: >
             "-Dsonar.projectKey=${{ github.repository }}"
             "-Dsonar.projectName=${{ github.event.repository.name || github.repository }}"
+            "-Dsonar.organization=vharse"
             "-Dsonar.sources=."
             "-Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/.venv/**"
             "-Dsonar.issue.ignore.multicriteria=e1"
