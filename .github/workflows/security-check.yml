@@ -17,4 +17,4 @@ jobs:
       checks: write
     secrets:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST: ${{ secrets.SONAR_HOST }}

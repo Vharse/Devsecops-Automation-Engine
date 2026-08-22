@@ -9,9 +9,9 @@ on:
         required: true
       ELASTIC_API_KEY:
         required: false
-      SONARQUBE_HOST:
+      SONAR_HOST:
         required: false
-      SONARQUBE_TOKEN:
+      SONAR_TOKEN:
         required: false
       AWS_ACCOUNT_ID:
         required: false
