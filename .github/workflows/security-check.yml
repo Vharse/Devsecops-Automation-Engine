@@ -8,11 +8,12 @@ on:
 
 jobs:
   run-security-engine:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@main
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@4cbc8cfe1e19d01d22fa80858f24be75ab568dab
     permissions:
       contents: read
       security-events: write
       id-token: write
       actions: read
       checks: write
-    secrets: inherit
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

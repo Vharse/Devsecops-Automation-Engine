@@ -25,10 +25,11 @@ jobs:
       contents: read
     steps:
       - name: Delete Workflow Runs Matching Pattern
-        uses: Mattraks/delete-workflow-runs@v2.0.4
+        uses: Mattraks/delete-workflow-runs@9835e4abbefe04992885a989df6e3f61ddd60117
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           retain_days: 0
           keep_minimum_runs: 0
           delete_run_by_conclusion_pattern: ${{ inputs.status_pattern }}
+          
