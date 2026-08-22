@@ -62,7 +62,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v6
         with:
           args: >
-            "-Dsonar.projectKey=${{ github.repository }}"
+            "-Dsonar.projectKey=Vharse_Devsecops-Automation-Engine"
             "-Dsonar.projectName=${{ github.event.repository.name || github.repository }}"
             "-Dsonar.organization=vharse"
             "-Dsonar.sources=."
@@ -70,6 +70,7 @@ jobs:
             "-Dsonar.issue.ignore.multicriteria=e1"
             "-Dsonar.issue.ignore.multicriteria.e1.ruleKey=docker:S6596"
             "-Dsonar.issue.ignore.multicriteria.e1.resourceKey=src/Dockerfile"
+
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
