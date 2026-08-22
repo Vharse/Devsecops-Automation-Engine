@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-security-engine:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@dev
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@main
     permissions:
       contents: read
       security-events: write

@@ -1,4 +1,4 @@
-name: "DevSecOps Master Security Engine"
+name: "DevSecOps Security Engine"
 
 on:
   workflow_call:
