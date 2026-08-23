@@ -193,10 +193,10 @@ jobs:
           name: trivy-sarif-report
 
       - name: Push Scan Report to DefectDojo
-        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != '' }}
         env:
           DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
           DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+        if: env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != ''
         run: |
           echo "Uploading Trivy scan findings to DefectDojo..."
           curl -s -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
