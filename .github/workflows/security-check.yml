@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-security-engine:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@4cbc8cfe1e19d01d22fa80858f24be75ab568dab
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@main
     permissions:
       contents: read
       security-events: write
@@ -22,7 +22,5 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-    # Pass DefectDojo credentials cleanly as environment variables instead:
-    env:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
