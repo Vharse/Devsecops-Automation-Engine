@@ -37,12 +37,12 @@ jobs:
           persist-credentials: false
 
       - name: Gitleaks Secret Scan
-        uses: gitleaks/gitleaks-action@v8.24.3
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Semgrep SAST Scan
-        uses: semgrep/semgrep-action@va735ce7ba2dc2b6c310bb2153549229ca2b5cbdb # v1.36.0
+        uses: semgrep/semgrep-action@v1
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
