@@ -199,7 +199,7 @@ jobs:
         if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
         run: |
           echo "Uploading Trivy scan findings to DefectDojo..."
-          curl -s -S -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+          curl -s -S -g -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DEFECTDOJO_API_KEY}" \
             -H "accept: application/json" \
             -F "scan_type=Trivy Scan" \
