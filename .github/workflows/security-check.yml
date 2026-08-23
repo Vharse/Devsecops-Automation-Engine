@@ -19,3 +19,4 @@ jobs:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DD_URL: ${{ secrets.DEFECTDOJO_URL }}
