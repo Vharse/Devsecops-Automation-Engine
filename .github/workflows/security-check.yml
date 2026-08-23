@@ -16,7 +16,4 @@ jobs:
       actions: read
       checks: write
     secrets: 
-      ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
-      SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      inherit: true
