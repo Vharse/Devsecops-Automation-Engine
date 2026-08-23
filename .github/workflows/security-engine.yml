@@ -185,7 +185,7 @@ jobs:
     name: "Sync Vulnerabilities to DefectDojo"
     needs: [sast-and-secrets, container-sca-sbom]
     runs-on: ubuntu-latest
-    if: always() && secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != ''
+    if: always()
     steps:
       - name: Download Trivy Scan Artifact
         uses: actions/download-artifact@v4
@@ -193,6 +193,7 @@ jobs:
           name: trivy-sarif-report
 
       - name: Push Scan Report to DefectDojo
+        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != '' }}
         env:
           DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
           DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
@@ -209,7 +210,13 @@ jobs:
   siem-telemetry:
     name: "Ship Security Events to LOGIX SIEM"
     needs:
-      [sast-and-secrets, container-sca-sbom, iac-and-policy, repo-scorecard, defectdojo-ingestion]
+      [
+        sast-and-secrets,
+        container-sca-sbom,
+        iac-and-policy,
+        repo-scorecard,
+        defectdojo-ingestion,
+      ]
     if: always()
     runs-on: ubuntu-latest
     permissions:
