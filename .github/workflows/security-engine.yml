@@ -4,7 +4,7 @@ on:
   workflow_call:
     secrets:
       ELASTIC_HOST:
-        required: true
+        required: false
       ELASTIC_API_KEY:
         required: false
       SONAR_HOST:
