@@ -204,7 +204,10 @@ jobs:
             -H "accept: application/json" \
             -F "scan_type=SARIF" \
             -F "file=@trivy-results.sarif" \
-            -F "engagement=1" \
+            -F "product_type_name=Devsecoops-Security-Engine" \
+            -F "product_name=Devsecoops-Security-Engine" \
+            -F "engagement_name=CI/CD Automated Scan" \
+            -F "auto_create_context=true" \
             -F "verified=true" \
             -F "active=true")
           
