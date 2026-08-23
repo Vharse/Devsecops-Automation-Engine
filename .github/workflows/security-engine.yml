@@ -186,6 +186,9 @@ jobs:
     needs: [sast-and-secrets, container-sca-sbom]
     runs-on: ubuntu-latest
     if: always()
+    env:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
     steps:
       - name: Download Trivy Scan Artifact
         uses: actions/download-artifact@v4
@@ -193,10 +196,7 @@ jobs:
           name: trivy-sarif-report
 
       - name: Push Scan Report to DefectDojo
-        env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
-        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != '' }}
+        if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
         run: |
           echo "Uploading Trivy scan findings to DefectDojo..."
           curl -s -S -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
