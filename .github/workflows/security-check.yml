@@ -15,13 +15,8 @@ jobs:
       id-token: write
       actions: read
       checks: write
-    secrets:
-      inherit:
-        ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
-        ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
-        SONAR_HOST: ${{ secrets.SONAR_HOST }}
-        SONAR_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-        DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
-        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    secrets: 
+      ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
+      SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
