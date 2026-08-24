@@ -1,4 +1,4 @@
-FROM cgr.dev/chainguard/python:3.13.2 AS builder
+FROM cgr.dev/chainguard/python:latest AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ ENV PATH="/app/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir --only-binary :all: -r requirements.txt
 
-FROM cgr.dev/chainguard/python:lastest
+FROM cgr.dev/chainguard/python:latest
 
 WORKDIR /app
 
