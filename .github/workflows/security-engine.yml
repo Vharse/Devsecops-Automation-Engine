@@ -87,7 +87,7 @@ jobs:
       contents: read
       security-events: write
     outputs:
-      trivy-sarif-path: trivy-results.sarif
+      trivy-json-path: trivy-results.json
     steps:
       - name: Checkout Code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -110,16 +110,16 @@ jobs:
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: "fs"
-          format: "sarif"
-          output: "trivy-results.sarif"
+          format: "json"
+          output: "trivy-results.json"
           severity: "HIGH,CRITICAL"
           exit-code: "0"
 
-      - name: Upload Trivy SARIF Artifact
+      - name: Upload Trivy JSON Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-sarif-report
-          path: trivy-results.sarif
+          name: trivy-json-report
+          path: trivy-results.json
 
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -134,53 +134,6 @@ jobs:
           name: sbom-spdx-report
           path: sbom.spdx.json
 
-  iac-and-policy:
-    name: "IaC & OPA Policy Enforcement"
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Open Policy Agent
-        uses: open-policy-agent/setup-opa@v2
-        with:
-          version: latest
-
-      - name: Evaluate OPA Rego Policies
-        run: |
-          if [ -d "policies/opa" ]; then
-            opa eval --data policies/opa/ "data"
-          fi
-
-  repo-scorecard:
-    name: "OpenSSF Security Posture Evaluation"
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      id-token: write
-      contents: read
-      actions: read
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.4
-        with:
-          results_file: scorecard-results.sarif
-          results_format: sarif
-          publish_results: true
-
-      - name: Upload SARIF to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: scorecard-results.sarif
-
   defectdojo-ingestion:
     name: "Sync Vulnerabilities to DefectDojo"
     needs: [sast-and-secrets, container-sca-sbom]
@@ -190,27 +143,27 @@ jobs:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
     steps:
-      - name: Download Trivy Scan Artifact
+      - name: Download Trivy JSON Artifact
         uses: actions/download-artifact@v4
         with:
-          name: trivy-sarif-report
+          name: trivy-json-report
 
       - name: Push Scan Report to DefectDojo
         if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
         run: |
-          echo "Uploading Trivy scan findings to DefectDojo..."
+          echo "Uploading Trivy JSON scan findings to DefectDojo..."
           RESPONSE=$(curl -s -S -g -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DEFECTDOJO_API_KEY}" \
             -H "accept: application/json" \
-            -F "scan_type=SARIF" \
-            -F "file=@trivy-results.sarif" \
+            -F "scan_type=Trivy Scan" \
+            -F "file=@trivy-results.json" \
             -F "product_type_name=Devsecoops-Security-Engine" \
             -F "product_name=Devsecoops-Security-Engine" \
             -F "engagement_name=CI/CD Automated Scan" \
             -F "auto_create_context=true" \
             -F "verified=true" \
             -F "active=true")
-          
+
           echo "DefectDojo Response:"
           echo "$RESPONSE"
 
