@@ -75,7 +75,6 @@ jobs:
             "-Dsonar.issue.ignore.multicriteria=e1"
             "-Dsonar.issue.ignore.multicriteria.e1.ruleKey=docker:S6596"
             "-Dsonar.issue.ignore.multicriteria.e1.resourceKey=src/Dockerfile"
-
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -134,6 +133,53 @@ jobs:
           name: sbom-spdx-report
           path: sbom.spdx.json
 
+  iac-and-policy:
+    name: "IaC & OPA Policy Enforcement"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Open Policy Agent
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Evaluate OPA Rego Policies
+        run: |
+          if [ -d "policies/opa" ]; then
+            opa eval --data policies/opa/ "data"
+          fi
+
+  repo-scorecard:
+    name: "OpenSSF Security Posture Evaluation"
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.4
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard-results.sarif
+
   defectdojo-ingestion:
     name: "Sync Vulnerabilities to DefectDojo"
     needs: [sast-and-secrets, container-sca-sbom]
@@ -163,7 +209,7 @@ jobs:
             -F "auto_create_context=true" \
             -F "verified=true" \
             -F "active=true")
-
+          
           echo "DefectDojo Response:"
           echo "$RESPONSE"
 
