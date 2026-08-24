@@ -1,0 +1,14 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-08-24T03:22:35.484114685+01:00",
+  "ArtifactName": ".",
+  "ArtifactType": "filesystem",
+  "Metadata": {
+    "RepoURL": "git@github.com:Vharse/Devsecops-Automation-Engine.git",
+    "Branch": "main",
+    "Commit": "49d8d5d11782ef8e19e6209d58d782a7a5e95ad7",
+    "CommitMsg": "fix: revert to stable action version tags to resolve resolution errors",
+    "Author": "Onlyonelogix \u003conlyonelogix@gmail.com\u003e",
+    "Committer": "Onlyonelogix \u003conlyonelogix@gmail.com\u003e"
+  }
+}
