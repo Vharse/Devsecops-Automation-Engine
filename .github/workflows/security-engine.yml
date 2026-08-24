@@ -29,6 +29,9 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    outputs:
+      semgrep-json-path: semgrep-results.json
+      gitleaks-json-path: gitleaks-results.json
     steps:
       - name: Checkout Code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -38,13 +41,38 @@ jobs:
 
       - name: Gitleaks Secret Scan
         uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --report-format json --report-path gitleaks-results.json
 
       - name: Semgrep SAST Scan
         uses: semgrep/semgrep-action@v1
+        continue-on-error: true
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        with:
+          generate-sarif: "1"
+          config: auto
+
+      - name: Rename Semgrep Output for Ingestion
+        run: |
+          if [ -f "semgrep.sarif" ]; then
+            cp semgrep.sarif semgrep-results.json
+          elif [ -f "semgrep-results.json" ]; then
+            true
+          else
+            echo "{}" > semgrep-results.json
+          fi
+
+      - name: Upload SAST & Secret Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-secret-reports
+          path: |
+            semgrep-results.json
+            gitleaks-results.json
 
   sonarqube-sast:
     name: "SonarQube Code Quality & SAST"
@@ -53,7 +81,7 @@ jobs:
       contents: read
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -77,7 +105,7 @@ jobs:
             "-Dsonar.issue.ignore.multicriteria.e1.resourceKey=src/Dockerfile"
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST }}
 
   container-sca-sbom:
     name: "SCA, Container Scan & SBOM"
@@ -132,6 +160,41 @@ jobs:
         with:
           name: sbom-spdx-report
           path: sbom.spdx.json
+
+      - name: Upload Trivy Report to DefectDojo
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+        run: |
+          python3 -c '
+          import os
+          import requests
+
+          url = os.environ["DEFECTDOJO_URL"].rstrip("/") + "/api/v2/import-scan/"
+          headers = {
+              "Authorization": "Token " + os.environ["DEFECTDOJO_API_KEY"],
+              "accept": "application/json"
+          }
+          files = {
+              "file": open("trivy-results.json", "rb")
+          }
+          data = {
+              "scan_type": "Trivy Scan",
+              "product_type_name": "Devsecoops-Security-Engine",
+              "product_name": "Devsecoops-Security-Engine",
+              "engagement_name": "CI/CD Automated Scan",
+              "auto_create_context": "true",
+              "verified": "true",
+              "active": "true"
+          }
+
+          response = requests.post(url, headers=headers, data=data, files=files)
+          print(f"Status Code: {response.status_code}")
+          print(response.text)
+
+          if response.status_code not in [200, 201]:
+              exit(1)
+          '
 
   iac-and-policy:
     name: "IaC & OPA Policy Enforcement"
@@ -189,29 +252,54 @@ jobs:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
     steps:
-      - name: Download Trivy JSON Artifact
+      - name: Download Scan Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: trivy-json-report
+          path: all-reports
 
-      - name: Push Scan Report to DefectDojo
+      - name: Push All Reports to DefectDojo
         if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
         run: |
-          echo "Uploading Trivy JSON scan findings to DefectDojo..."
-          RESPONSE=$(curl -s -S -g -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-            -H "Authorization: Token ${DEFECTDOJO_API_KEY}" \
-            -H "accept: application/json" \
-            -F "scan_type=Trivy Scan" \
-            -F "file=@trivy-results.json" \
-            -F "product_type_name=Devsecoops-Security-Engine" \
-            -F "product_name=Devsecoops-Security-Engine" \
-            -F "engagement_name=CI/CD Automated Scan" \
-            -F "auto_create_context=true" \
-            -F "verified=true" \
-            -F "active=true")
-          
-          echo "DefectDojo Response:"
-          echo "$RESPONSE"
+          python3 -c '
+          import os
+          import requests
+
+          base_url = os.environ["DEFECTDOJO_URL"].rstrip("/") + "/api/v2/import-scan/"
+          headers = {
+              "Authorization": "Token " + os.environ["DEFECTDOJO_API_KEY"],
+              "accept": "application/json"
+          }
+
+          scans = [
+              {"path": "all-reports/trivy-json-report/trivy-results.json", "type": "Trivy Scan"},
+              {"path": "all-reports/sast-secret-reports/semgrep-results.json", "type": "Semgrep JSON Report"},
+              {"path": "all-reports/sast-secret-reports/gitleaks-results.json", "type": "Gitleaks Scan"}
+          ]
+
+          for scan in scans:
+              file_path = scan["path"]
+              scan_type = scan["type"]
+
+              if not os.path.exists(file_path):
+                  print(f"[-] Report not found: {file_path}, skipping...")
+                  continue
+
+              print(f"[+] Uploading {file_path} as {scan_type}...")
+              with open(file_path, "rb") as f:
+                  files = {"file": f}
+                  data = {
+                      "scan_type": scan_type,
+                      "product_type_name": "Devsecoops-Security-Engine",
+                      "product_name": "Devsecoops-Security-Engine",
+                      "engagement_name": "CI/CD Automated Scan",
+                      "auto_create_context": "true",
+                      "verified": "true",
+                      "active": "true"
+                  }
+                  response = requests.post(base_url, headers=headers, data=data, files=files)
+                  print(f"    Status: {response.status_code}")
+                  print(f"    Response: {response.text}")
+          '
 
   siem-telemetry:
     name: "Ship Security Events to LOGIX SIEM"
