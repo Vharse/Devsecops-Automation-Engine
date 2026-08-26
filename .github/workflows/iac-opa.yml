@@ -1,0 +1,27 @@
+name: "IaC & Policy Enforcement Workflow"
+
+on:
+  workflow_call:
+
+jobs:
+  iac-and-policy:
+    name: "IaC & OPA Policy Enforcement"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Open Policy Agent
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Evaluate OPA Rego Policies
+        run: |
+          if [ -d "policies/opa" ]; then
+            opa eval --data policies/opa/ "data"
+          fi

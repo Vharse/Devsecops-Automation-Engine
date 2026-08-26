@@ -1,0 +1,74 @@
+name: "DefectDojo Ingestion Workflow"
+
+on:
+  workflow_call:
+    inputs:
+      sast_job_needed:
+        required: true
+        type: string
+      container_job_needed:
+        required: true
+        type: string
+    secrets:
+      DEFECTDOJO_URL:
+        required: false
+      DEFECTDOJO_API_KEY:
+        required: false
+
+jobs:
+  defectdojo-ingestion:
+    name: "Sync Vulnerabilities to DefectDojo"
+    runs-on: ubuntu-latest
+    if: always()
+    env:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+    steps:
+      - name: Download Scan Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports
+
+      - name: Push All Reports to DefectDojo
+        if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
+        run: |
+          python3 -c '
+          import os
+          import requests
+
+          base_url = os.environ["DEFECTDOJO_URL"].rstrip("/") + "/api/v2/import-scan/"
+          headers = {
+              "Authorization": "Token " + os.environ["DEFECTDOJO_API_KEY"],
+              "accept": "application/json"
+          }
+
+          scans = [
+              {"path": "all-reports/trivy-json-report/trivy-results.json", "type": "Trivy Scan"},
+              {"path": "all-reports/sast-secret-reports/semgrep-results.json", "type": "Semgrep JSON Report"},
+              {"path": "all-reports/sast-secret-reports/gitleaks-results.json", "type": "Gitleaks Scan"}
+          ]
+
+          for scan in scans:
+              file_path = scan["path"]
+              scan_type = scan["type"]
+
+              if not os.path.exists(file_path):
+                  print(f"[-] Report not found: {file_path}, skipping...")
+                  continue
+
+              print(f"[+] Uploading {file_path} as {scan_type}...")
+              with open(file_path, "rb") as f:
+                  files = {"file": f}
+                  data = {
+                      "scan_type": scan_type,
+                      "product_type_name": "Devsecoops-Security-Engine",
+                      "product_name": "Devsecoops-Security-Engine",
+                      "engagement_name": "CI/CD Automated Scan",
+                      "auto_create_context": "true",
+                      "verified": "true",
+                      "active": "true"
+                  }
+                  response = requests.post(base_url, headers=headers, data=data, files=files)
+                  print(f"    Status: {response.status_code}")
+                  print(f"    Response: {response.text}")
+          '

@@ -6,20 +6,29 @@ on:
   pull_request:
     branches: [main]
 
+# Prevents redundant scans from running simultaneously on the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run-security-engine:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@main
+    # TODO: Replace the SHA below with the actual verified commit SHA from the Vharse repo
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@cf7920b7d6ba8694bfb3664e5a11ceee77ef8c4a
+    
+    # Enforcing Least Privilege
     permissions:
       contents: read
       security-events: write
-      id-token: write
       actions: read
       checks: write
+      # id-token: write # Uncomment ONLY if you are using OIDC for cloud authentication
+
     secrets:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
       SONAR_HOST: ${{ secrets.SONAR_HOST }}
-      SONAR_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
