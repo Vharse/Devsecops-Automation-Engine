@@ -14,7 +14,7 @@ concurrency:
 jobs:
   run-security-engine:
     # TODO: Replace the SHA below with the actual verified commit SHA from the Vharse repo
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@cf7920b7d6ba8694bfb3664e5a11ceee77ef8c4a
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@ef0fcb33422a59a177ede454824482ff3f3aa9f8
     
     # Enforcing Least Privilege
     permissions:
