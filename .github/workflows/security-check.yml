@@ -27,7 +27,7 @@ jobs:
     secrets:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
-      SONAR_HOST: ${{ secrets.SONAR_HOST }}
+      SONAR_HOST: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
