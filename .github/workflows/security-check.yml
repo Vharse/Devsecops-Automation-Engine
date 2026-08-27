@@ -2,9 +2,9 @@ name: Enterprise Security Orchestrator
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,6 +31,9 @@ jobs:
       security-events: write
       actions: read
       checks: write
+    secrets:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
 
   iac-and-opa:
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
