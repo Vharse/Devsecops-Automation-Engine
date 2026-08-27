@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   sast-and-secrets:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
 
     permissions:
       contents: read
@@ -26,7 +26,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   container-and-sbom:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:
       contents: read
       security-events: write
@@ -34,7 +34,7 @@ jobs:
       checks: write
 
   iac-and-opa:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:
       contents: read
       security-events: write
@@ -42,7 +42,7 @@ jobs:
       checks: write
 
   scorecard-audit:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:
       contents: read
       security-events: write
@@ -50,7 +50,7 @@ jobs:
       checks: write
 
   siem-telemetry:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:
       contents: read
       actions: read
@@ -62,7 +62,7 @@ jobs:
     needs: [sast-and-secrets, container-and-sbom, iac-and-opa, scorecard-audit]
     # Enforces data ingestion even if scanners detect critical vulnerabilities and exit with failure codes
     if: always()
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@e93b99bde3f1946e464970996fdc1e25ff55ad4f
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:
       contents: read
       actions: read
