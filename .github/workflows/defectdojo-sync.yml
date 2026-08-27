@@ -4,11 +4,13 @@ on:
   workflow_call:
     inputs:
       sast_job_needed:
-        required: true
-        type: string
+        required: false
+        type: boolean
+        default: true
       container_job_needed:
-        required: true
-        type: string
+        required: false
+        type: boolean
+        default: true
     secrets:
       DEFECTDOJO_URL:
         required: false
@@ -20,25 +22,37 @@ jobs:
     name: "Sync Vulnerabilities to DefectDojo"
     runs-on: ubuntu-latest
     if: always()
-    env:
-      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
     steps:
       - name: Download Scan Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.1.8
+        continue-on-error: true
         with:
           path: all-reports
 
       - name: Push All Reports to DefectDojo
-        if: ${{ env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != '' }}
+        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != '' }}
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
         run: |
           python3 -c '
           import os
           import requests
 
-          base_url = os.environ["DEFECTDOJO_URL"].rstrip("/") + "/api/v2/import-scan/"
+          raw_url = os.environ.get("DEFECTDOJO_URL", "").strip()
+          api_key = os.environ.get("DEFECTDOJO_API_KEY", "").strip()
+
+          if not raw_url or not api_key:
+              print("[-] DefectDojo credentials missing or empty. Skipping ingestion gracefully.")
+              exit(0)
+
+          if not raw_url.startswith(("http://", "https://")):
+              print(f"[-] Invalid DEFECTDOJO_URL format: {raw_url}. Must include protocol (http:// or https://).")
+              exit(1)
+
+          base_url = raw_url.rstrip("/") + "/api/v2/import-scan/"
           headers = {
-              "Authorization": "Token " + os.environ["DEFECTDOJO_API_KEY"],
+              "Authorization": "Token " + api_key,
               "accept": "application/json"
           }
 
