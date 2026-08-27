@@ -12,24 +12,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  run-security-engine:
-    # TODO: Replace the SHA below with the actual verified commit SHA from the Vharse repo
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@ef0fcb33422a59a177ede454824482ff3f3aa9f8
-    
-    # Enforcing Least Privilege
+  sast-and-secrets:
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@38bf857a71375334921ea1e33d8a70caafc02c48
     permissions:
       contents: read
       security-events: write
       actions: read
       checks: write
-      # id-token: write # Uncomment ONLY if you are using OIDC for cloud authentication
+    secrets:
+      SONAR_HOST: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
+  container-and-sbom:
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@38bf857a71375334921ea1e33d8a70caafc02c48
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      checks: write
+    # Add explicit secrets here if your container scanner requires registry credentials
+
+  iac-and-opa:
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@38bf857a71375334921ea1e33d8a70caafc02c48
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      checks: write
+
+  scorecard-audit:
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@38bf857a71375334921ea1e33d8a70caafc02c48
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      checks: write
+
+  siem-telemetry:
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@38bf857a71375334921ea1e33d8a70caafc02c48
+    permissions:
+      contents: read
+      actions: read
     secrets:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
-      SONAR_HOST: ${{ secrets.SONAR_HOST_URL }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  defectdojo-ingestion:
+    # Ensures this only runs AFTER the scanners finish and upload their artifacts
+    needs: [sast-and-secrets, container-and-sbom, iac-and-opa, scorecard-audit]
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@38bf857a71375334921ea1e33d8a70caafc02c48
+    permissions:
+      contents: read
+      actions: read
+    secrets:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
