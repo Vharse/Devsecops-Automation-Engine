@@ -72,9 +72,16 @@ jobs:
           import os
           import requests
 
-          url = os.environ["DEFECTDOJO_URL"].rstrip("/") + "/api/v2/import-scan/"
+          raw_url = os.environ.get("DEFECTDOJO_URL", "").strip()
+          api_key = os.environ.get("DEFECTDOJO_API_KEY", "").strip()
+
+          if not raw_url or not api_key:
+              print("[-] DefectDojo credentials missing or empty. Skipping ingestion gracefully.")
+              exit(0)
+
+          url = raw_url.rstrip("/") + "/api/v2/import-scan/"
           headers = {
-              "Authorization": "Token " + os.environ["DEFECTDOJO_API_KEY"],
+              "Authorization": "Token " + api_key,
               "accept": "application/json"
           }
           files = {
