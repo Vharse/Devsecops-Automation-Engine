@@ -83,7 +83,7 @@ jobs:
                           "verified": "true",
                           "active": "true"
                       }
-                      response = requests.post(base_url, headers=headers, data=data, files=files, timeout=15)
+                      response = requests.post(base_url, headers=headers, data=data, files=files, timeout=120)
                       print(f"    Status: {response.status_code}")
                       print(f"    Response: {response.text}")
               except requests.exceptions.RequestException as e:
