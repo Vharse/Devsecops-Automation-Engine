@@ -13,7 +13,6 @@ concurrency:
 jobs:
   sast-and-secrets:
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
-
     permissions:
       contents: read
       security-events: write
@@ -48,6 +47,7 @@ jobs:
       security-events: write
       actions: read
       checks: write
+      id-token: write # Added: grants OIDC token generation required by OpenSSF Scorecard
 
   siem-telemetry:
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
