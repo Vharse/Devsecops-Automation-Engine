@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   sast-and-secrets:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       security-events: write
@@ -25,7 +25,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   container-and-sbom:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       security-events: write
@@ -33,7 +33,7 @@ jobs:
       checks: write
 
   iac-and-opa:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       security-events: write
@@ -41,7 +41,7 @@ jobs:
       checks: write
 
   scorecard-audit:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       security-events: write
@@ -49,7 +49,7 @@ jobs:
       checks: write
 
   siem-telemetry:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       actions: read
@@ -61,7 +61,7 @@ jobs:
     needs: [sast-and-secrets, container-and-sbom, iac-and-opa, scorecard-audit]
     # Enforces data ingestion even if scanners detect critical vulnerabilities and exit with failure codes
     if: always()
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@<YOUR_NEW_COMMIT_SHA>
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@3dbf5bb795c48358239c281c5886d04c7d611ded
     permissions:
       contents: read
       actions: read
