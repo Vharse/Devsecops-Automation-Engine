@@ -15,10 +15,10 @@ jobs:
       actions: read
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v11d5960a326750d5838078e36cf38b85af677262
 
       - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.4
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc
         with:
           results_file: scorecard-results.sarif
           results_format: sarif

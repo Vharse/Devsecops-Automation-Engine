@@ -19,7 +19,7 @@ jobs:
       trivy-json-path: trivy-results.json
     steps:
       - name: Checkout Code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
@@ -45,7 +45,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy JSON Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
         with:
           name: trivy-json-report
           path: trivy-results.json
