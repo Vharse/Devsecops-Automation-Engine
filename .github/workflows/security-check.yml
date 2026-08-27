@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   sast-and-secrets:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@99c751b36c15f1c1ef2219e9afbc2facd82bc885
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@0e60f8c3c1d7db21250776ee5f4902183937b894
     permissions:
       contents: read
       security-events: write
@@ -25,7 +25,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   container-and-sbom:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@99c751b36c15f1c1ef2219e9afbc2facd82bc885
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@0e60f8c3c1d7db21250776ee5f4902183937b894
     permissions:
       contents: read
       security-events: write
@@ -33,7 +33,7 @@ jobs:
       checks: write
 
   iac-and-opa:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@99c751b36c15f1c1ef2219e9afbc2facd82bc885
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@0e60f8c3c1d7db21250776ee5f4902183937b894
     permissions:
       contents: read
       security-events: write
@@ -41,7 +41,7 @@ jobs:
       checks: write
 
   scorecard-audit:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@99c751b36c15f1c1ef2219e9afbc2facd82bc885
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@0e60f8c3c1d7db21250776ee5f4902183937b894
     permissions:
       contents: read
       security-events: write
@@ -50,7 +50,7 @@ jobs:
       id-token: write # Added: grants OIDC token generation required by OpenSSF Scorecard
 
   siem-telemetry:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@99c751b36c15f1c1ef2219e9afbc2facd82bc885
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@0e60f8c3c1d7db21250776ee5f4902183937b894
     permissions:
       contents: read
       actions: read
