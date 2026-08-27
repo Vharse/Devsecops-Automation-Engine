@@ -30,10 +30,10 @@ jobs:
           path: all-reports
 
       - name: Push All Reports to DefectDojo
-        if: ${{ secrets.DEFECTDOJO_URL != '' && secrets.DEFECTDOJO_API_KEY != '' }}
         env:
           DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
           DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+        if: env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != ''
         run: |
           python3 -c '
           import os
