@@ -79,6 +79,10 @@ jobs:
               print("[-] DefectDojo credentials missing or empty. Skipping ingestion gracefully.")
               exit(0)
 
+          if not raw_url.startswith(("http://", "https://")):
+              print(f"[-] Invalid DEFECTDOJO_URL format: {raw_url}. Must include protocol (http:// or https://).")
+              exit(0)
+
           url = raw_url.rstrip("/") + "/api/v2/import-scan/"
           headers = {
               "Authorization": "Token " + api_key,
