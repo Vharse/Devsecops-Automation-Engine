@@ -60,9 +60,10 @@ jobs:
 
                   base_url = raw_url.rstrip("/") + "/api/v2/import-scan/"
                   headers = {
-                      "Authorization": "Token " + api_key,
-                      "accept": "application/json"
-                  }
+                    "Authorization": "Token " + api_key,
+                    "accept": "application/json",
+                    "ngrok-skip-browser-warning": "69420"
+                    }
 
                   scans = [
                       {"path": "all-reports/trivy-json-report/trivy-results.json", "type": "Trivy Scan"},
