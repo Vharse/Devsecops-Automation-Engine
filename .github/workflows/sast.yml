@@ -29,13 +29,13 @@ jobs:
           persist-credentials: false
 
       - name: Semgrep SAST Scan
-        uses: semgrep/semgrep-action@9a16a63fd4f29af4f7f64782b8890943de7788a6
+        uses: semgrep/semgrep-action@85c575024b898a1012f451bcf6279f0fb5f98cf9 # v1
         continue-on-error: false
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         with:
-          generate-sarif: "1"
           config: p/default
+          generateSarif: "1"
 
       - name: Rename Semgrep Output for Ingestion
         run: |
