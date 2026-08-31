@@ -29,13 +29,11 @@ jobs:
           persist-credentials: false
 
       - name: Semgrep SAST Scan
-        uses: semgrep/semgrep-action@85c575024b898a1012f451bcf6279f0fb5f98cf9 # v1
-        continue-on-error: false
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-        with:
-          config: p/default
-          generateSarif: "1"
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            semgrep/semgrep:latest \
+            semgrep scan --config p/default --sarif --output /src/semgrep.sarif
 
       - name: Rename Semgrep Output for Ingestion
         run: |
