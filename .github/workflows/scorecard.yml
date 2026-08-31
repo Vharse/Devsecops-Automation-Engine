@@ -6,7 +6,6 @@ on:
 jobs:
   repo-scorecard:
     name: "OpenSSF Security Posture Evaluation"
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
