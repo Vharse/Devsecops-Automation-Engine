@@ -35,7 +35,7 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         with:
           generate-sarif: "1"
-          config: auto
+          config: p/default
 
       - name: Rename Semgrep Output for Ingestion
         run: |
