@@ -52,7 +52,7 @@ jobs:
       checks: write
 
   scorecard-audit:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+    uses: ./.github/workflows/scorecard.yml
     permissions:
       contents: read
       security-events: write
