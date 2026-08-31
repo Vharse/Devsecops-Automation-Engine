@@ -1,4 +1,4 @@
-name: "IaC & Policy Enforcement Workflow"
+name: "Evaluates Infrastructure as Code (IaC)"
 
 on:
   workflow_call:
