@@ -2,9 +2,9 @@ name: Vharse DevOps Security Guard
 
 on:
   push:
-    branches: [main, ci-updates]
+    branches: [main]
   pull_request:
-    branches: [main, ci-updates]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
