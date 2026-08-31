@@ -1,4 +1,4 @@
-name: "Evaluates Infrastructure as Code (IaC)"
+name: "Evaluates Infrastructure as Code"
 
 on:
   workflow_call:
