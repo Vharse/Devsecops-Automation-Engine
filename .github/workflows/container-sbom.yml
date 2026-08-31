@@ -1,4 +1,4 @@
-name: "Container SCA & SBOM Workflow"
+name: "Dependency Security Scan"
 
 on:
   workflow_call:
