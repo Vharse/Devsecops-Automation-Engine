@@ -1,136 +1,147 @@
-## DevSecOps Automation Engine
+DevSecOps Automation Engine
 
-An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, Secret Scanning, Software Bill of Materials (SBOM) generation, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, and real-time SIEM event correlation.
+An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, decoupled reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, independent Secret Scanning, Software Bill of Materials (SBOM) generation, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, centralized vulnerability management in DefectDojo, and real-time SIEM event correlation.
+🏛️ Architecture Overview
 
-## 🏛️ Architecture Overview
+The DevSecOps Automation Engine functions as a centralized security authority. Client repositories or local pipelines execute modular, parallel reusable workflows to enforce shift-left security before code compilation or deployment.
+Plaintext
 
-The DevSecOps Automation Engine functions as a centralized security authority. Client repositories or local pipelines call reusable workflows to enforce shift-left security before code compilation or deployment.
+                                        ┌─────────────────────────────────────────┐
+                                        │         Developer Push / PR             │
+                                        └────────────────────┬────────────────────┘
+                                                             │
+                                                             ▼
+                                        ┌─────────────────────────────────────────┐
+                                        │    GitHub Actions Security Workflow     │
+                                        └────────────────────┬────────────────────┘
+                                                             │
+        ┌────────────────────────────┬───────────────────────┴──────┬────────────────────────────┬────────────────────────────┐
+        │                            │                              │                            │                            │
+        ▼                            ▼                              ▼                            ▼                            ▼
+  ┌───────────┐                ┌───────────┐                  ┌───────────┐                ┌───────────┐                ┌───────────┐
+  │ SAST Scan │                │  Secret   │                  │ Container │                │    IaC    │                │  OpenSSF  │
+  │  & Code   │                │ Scanning  │                  │  & SBOM   │                │  Policy   │                │  Posture  │
+  │  Quality  │                │           │                  │ Scanning  │                │   Guard   │                │   Audit   │
+  ├───────────┤                ├───────────┤                  ├───────────┤                ├───────────┤                ├───────────┤
+  │ Semgrep   │                │ Gitleaks  │                  │ Trivy     │                │ OPA Rego  │                │ Scorecard │
+  │ SonarQube │                │ Gate      │                  │ SPDX SBOM │                │ Engine    │                │ SARIF     │
+  └─────┬─────┘                └─────┬─────┘                  └─────┬─────┘                └─────┬─────┘                └─────┬─────┘
+        │                            │                              │                            │                            │
+        └────────────────────────────┴──────────────┬───────────────┴────────────────────────────┴────────────────────────────┘
+                                                    │
+                                                    ▼
+                                        ┌─────────────────────────────────────────┐
+                                        │    DefectDojo Vulnerability Manager     │
+                                        │ (Centralized Aggregation & SLA Tracking)│
+                                        └────────────────────┬────────────────────┘
+                                                             │
+                                                             ▼
+                                        ┌─────────────────────────────────────────┐
+                                        │    Elastic SIEM Telemetry Collector     │
+                                        │       (devsecops-pipeline-logs)         │
+                                        └────────────────────┬────────────────────┘
+                                                             │
+                                                             ▼
+                                        ┌─────────────────────────────────────────┐
+                                        │        Slack Automated Incident         │
+                                        │             Alert Dispatcher            │
+                                        └─────────────────────────────────────────┘
 
-                                      ┌─────────────────────────────────────────┐
-                                      │          Developer Push / PR            │
-                                      └────────────────────┬────────────────────┘
-                                                          │
-                                                          ▼
-                                      ┌─────────────────────────────────────────┐
-                                      │    GitHub Actions Security Workflow     │
-                                      └────────────────────┬────────────────────┘
-                                                        │
-                ┌────────────────────────────┼────────────────────────────┬────────────────────────────┐
-                │                            │                            │                            │
-                ▼                            ▼                            ▼                            ▼
-      ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
-      │ SAST, Quality &  │         │ Container & SBOM │         │ IaC Policy Guard │         │ OpenSSF Posture  │
-      │ Secret Scanning  │         │ Scanning         │         │ (OPA / Rego)     │         │ Evaluation       │
-      ├──────────────────┤         ├──────────────────┤         ├──────────────────┤         ├──────────────────┤
-      │ • Gitleaks       │         │ • Trivy Scanner  │         │ • OPA Rego Engine│         │ • Scorecard v2   │
-      │ • Semgrep Rules  │         │ • SPDX SBOM      │         │ • S3/IaC Checks  │         │ • SARIF Export   │
-      │ • SonarQube Gate │         └────────┬─────────┘         └────────┬─────────┘         └────────┬─────────┘
-      └────────┬─────────┘                  │                            │                            │
-              │                            │                            │                            │
-              └────────────────────────────┴─────────────┬──────────────┴────────────────────────────┘
-                                                          │
-                                                          ▼
-                                      ┌─────────────────────────────────────────┐
-                                      │    Elastic SIEM Telemetry Collector     │
-                                      │       (devsecops-pipeline-logs)         │
-                                      └─────────────────────────────────────────┘
-                                                          │
-                                                          ▼
-                                      ┌─────────────────────────────────────────┐
-                                      │       Slack Automated Incident          │
-                                      │           Alert Dispatcher              │
-                                      └─────────────────────────────────────────┘
-```
-
-
-```
 🚀 Key Accomplishments & Technical Features
-1. Reusable Workflow Security Gate (devsecops-gate.yml)
 
-    Implemented modular GitHub Actions workflow (.github/workflows/security-engine.yml) that can be centrally referenced across organizational repositories.
+    Decoupled Reusable Workflow Architecture (security-check.yml)
 
-    Enforces strict quality and security gates prior to code merge or release.
+        Modularized monolithic jobs into parallel, independent execution tracks (sast.yml, secret-scanning.yml, container-sca-sbom.yml, iac-opa.yml, scorecard.yml).
 
-2. Static Code, Quality & Secret Analysis (SAST)
+        Dynamically evaluates target branch conditions: enforces strict build-blocking gates (exit-code 1) on main and PRs targeting main, while operating in Advisory Mode (exit-code 0) on feature branches.
 
-    Secret Detection: Integrated Gitleaks to detect hardcoded high-entropy strings, API keys, passwords, and private SSH keys across all git commits.
+    Decoupled Static Code, Quality & Secret Analysis
 
-    Semgrep SAST: Linked Semgrep AppSec Platform for automated SAST scanning to uncover code vulnerabilities, injection threats, and unsafe coding practices.
+        Independent Secret Detection (secret-scanning.yml): Runs Gitleaks in parallel with zero dependency on static code analysis, blocking hardcoded API keys, passwords, and private SSH keys with rapid feedback loops.
 
-    SonarQube Code Quality & SAST Gate: Integrated SonarQube static analysis for deep polyglot source code scanning, evaluating code smells, security hotspots, technical debt, and Quality Gate policies. Evaluates execution conditions dynamically using env context mapping to guarantee safe token parsing.
+        Containerized Semgrep SAST (sast.yml): Executes Semgrep via direct Docker invocation to ensure engine stability and bypass third-party action policy restrictions. Detects SQL injection, XSS, and dangerous code patterns while outputting standard SARIF artifacts.
 
-3. Container Security & Software Bill of Materials (SBOM)
+        SonarQube Code Quality Gate (sast.yml): Measures technical debt, code coverage, and quality gate compliance across polyglot codebases.
 
-    Trivy Vulnerability Scanner: Configured image scanning against application Dockerfile and base dependencies.
+    Container Security & Software Bill of Materials (SBOM)
 
-    SPDX SBOM Generation: Automated creation and artifact upload of standard SPDX SBOM reports to maintain software supply chain transparency.
+        Trivy Container Scan: Evaluates built container images (local-test-image:latest) for high/critical vulnerabilities with ignore-unfixed: true enabled to eliminate unpatchable OS vendor noise.
 
-4. Policy as Code Governance (OPA / Rego)
+        SPDX SBOM Generation: Automated creation and artifact upload of standard SPDX SBOM inventories (sbom.spdx.json) for supply chain visibility.
 
-    Built custom Open Policy Agent rules (policies/opa/s3_check.rego) to validate Infrastructure-as-Code setups.
+    Policy-as-Code Governance (OPA / Rego)
 
-    Prevents misconfigurations (e.g., publicly accessible storage, weak encryption policies) from reaching deployment environments.
+        Custom Open Policy Agent rules (policies/opa/) validate Infrastructure-as-Code and container configuration files.
 
-5. Supply Chain Security Posture (OpenSSF Scorecard)
+        Enforces strict evaluation (opa eval --fail) to block insecure cloud configurations prior to deployment.
 
-    Integrated OpenSSF Scorecard to automatically evaluate repository security posture, branch protections, and supply chain health.
+    Supply Chain Security & Action Hardening
 
-    Enforces automated default-branch guards (if: github.ref == 'refs/heads/main') to align with OpenSSF API policies while keeping developer feature branches (dev) fast and unblocked.
+        Full Commit SHA Pinning: All third-party GitHub Actions across all workflow steps are pinned directly to immutable 40-character commit SHAs to protect against supply chain tampering.
 
-    Exports security posture metrics in SARIF format for centralized reporting.
+        OpenSSF Scorecard: Automatically evaluates repository posture, top-level token permissions, branch protections, and maintenance health, publishing SARIF reports directly to the GitHub Security tab.
 
-6. Elastic SIEM Telemetry & Security Operations
+    DefectDojo Centralized Vulnerability Management (defectdojo-ingestion.yml)
 
-    Formatted pipeline security events into JSON telemetry payloads.
+        Gates execution on the completion of parallel scan jobs (sast, secret-scanning, container-and-sbom, iac-and-opa).
 
-    Integrated automated ingestion into Elasticsearch / Elastic SIEM (devsecops-pipeline-logs-* index) for real-time monitoring and SOC alert correlation across all scanning gates.
+        Ingests JSON/SARIF artifacts from Gitleaks, Semgrep, Trivy, and OPA directly into DefectDojo.
 
-7. Automated Slack Incident Notifications
+        Centralizes vulnerability tracking, deduplication, historical trend analysis, and SLA enforcement across organizational repositories.
 
-    Integrated Slack Incoming Webhooks via slackapi/slack-github-action for real-time alerting on pipeline execution outcomes.
+    Elastic SIEM Telemetry & Security Operations (siem-telemetry.yml)
 
-    Dispatches formatted security status alerts (PASSED or FAILED), pipeline triggers, and actor metadata directly to designated security channels upon pipeline completion.
+        Formats pipeline execution metrics into structured JSON telemetry payloads.
 
+        Ships security logs into Elasticsearch / Elastic SIEM (devsecops-pipeline-logs-* index) for real-time SOC monitoring.
 
-## 📂 Repository Structure
+    Automated Slack Incident Notifications
+
+        Dispatches formatted real-time alert notifications (PASSED / FAILED) with pipeline metadata and actor details to Slack security channels via incoming webhooks.
+
+📂 Repository Structure
+Plaintext
 
 Devsecops-Automation-Engine/
 ├── .github/
 │   └── workflows/
-│       ├── clear-actions.yml      # Workflow run cleanup automation
-│       ├── security-engine.yml    # Reusable core pipeline engine
-│       └── security-check.yml     # Local execution pipeline
+│       ├── container-sca-sbom.yml    # Container scanning & SBOM workflow
+│       ├── defectdojo-ingestion.yml  # Centralized DefectDojo ingestion gate
+│       ├── delete-actions.yml        # Workflow run cleanup automation
+│       ├── iac-opa.yml               # OPA IaC policy enforcement workflow
+│       ├── sast.yml                  # Semgrep SAST & SonarQube code quality workflow
+│       ├── scorecard.yml             # OpenSSF Scorecard posture workflow
+│       ├── secret-scanning.yml       # Gitleaks secret detection workflow
+│       ├── security-check.yml        # Main execution & orchestration pipeline
+│       └── siem-telemetry.yml        # Elastic SIEM logging workflow
 ├── policies/
 │   └── opa/
-│       └── s3_check.rego          # OPA Rego compliance policies
+│       └── s3_check.rego             # OPA Rego compliance policies
 ├── src/
-│   └── Dockerfile                 # Zero-CVE Chainguard container base
-├── LICENSE                        # MIT Open Source License
-├── README.md                      # System documentation
-└── SECURITY.md                    # Vulnerability disclosure and security policy
----
+│   ├── Dockerfile                    # Container definition
+│   └── app.py                        # Application source entrypoint
+├── LICENSE                           # MIT Open Source License
+├── README.md                         # System documentation
+└── SECURITY.md                       # Vulnerability disclosure and security policy
 
-## 🔑 Required Repository Secrets
+🔑 Required Repository Secrets
 
-To run all pipeline jobs successfully, configure these secrets under **Settings** → **Secrets and variables** → **Actions**:
+To run all pipeline jobs successfully, configure these secrets under Settings → Secrets and variables → Actions:
+Secret Name	Description	Example / Scope
+SEMGREP_APP_TOKEN	(Optional) Authentication token from Semgrep AppSec	semgrep_...
+SONAR_TOKEN	Global analysis authentication token for SonarQube	sqa_...
+SONAR_HOST_URL	Endpoint URL for SonarQube server	[https://sonar.your-domain.com](https://sonar.your-domain.com)
+DEFECTDOJO_URL	Endpoint URL for DefectDojo instance	[https://defectdojo.your-domain.com](https://defectdojo.your-domain.com)
+DEFECTDOJO_API_KEY	User API Key for DefectDojo ingestion	Token 8a9b...
+ELASTIC_HOST	Endpoint URL for Elastic SIEM cluster	[https://elastic.your-domain.com:9243](https://elastic.your-domain.com:9243)
+ELASTIC_API_KEY	Base64 encoded Elastic API Key for log ingestion	V2...==
+SLACK_WEBHOOK_URL	(Optional) Slack Incoming Webhook URL for automated channel alerting	[https://hooks.slack.com/services/](https://hooks.slack.com/services/)...
+🛠️ Usage & Integration
+Reusing this Engine in Client Repositories
 
-| Secret Name | Description | Example / Scope |
-| :--- | :--- | :--- |
-| `SEMGREP_APP_TOKEN` | Authentication token from Semgrep AppSec | `semgrep_...` |
-| `SONAR_TOKEN	Global analysis authentication token for SonarQube	sqa_...` |
-| `ELASTIC_HOST` | Endpoint URL for Elastic SIEM cluster | `https://elastic.your-domain.com:9243` |
-| `ELASTIC_API_KEY` | Base64 encoded Elastic API Key for log ingestion | `V2...==` |
-| `SLACK_WEBHOOK_URL` | *(Optional)* Slack Incoming Webhook URL for automated channel alerting | `https://hooks.slack.com/services/...` |
+To consume this centralized security engine inside any client repository, create .github/workflows/security-check.yml in your target repo:
+YAML
 
----
-
-## 🛠️ Usage & Integration
-
-### Reusing this Engine in Client Repositories
-
-To consume this centralized security engine inside any client repository, create `.github/workflows/security-check.yml` in your target repo:
-
-```yaml
 name: Security Check
 
 on:
@@ -141,17 +152,11 @@ on:
 
 jobs:
   run-security-engine:
-    uses: Vherse/Devsecops-Automation-Engine/.github/workflows/security-engine.yml@main
+    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/security-check.yml@main
     permissions:
       contents: read
       security-events: write
       id-token: write
+      checks: write
+      actions: read
     secrets: inherit
-      
-```
-
----
-
-## 📜 License
-
-This project is open-source and distributed under the [MIT License](LICENSE).
