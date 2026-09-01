@@ -2,17 +2,17 @@ name: Vharse DevOps Security Guard
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  sast-and-secrets:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast-secrets.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+  sast:
+    uses: ./.github/workflows/sast.yml
     permissions:
       contents: read
       security-events: write
@@ -23,6 +23,14 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  secret-scanning:
+    uses: ./.github/workflows/secret-scanning.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      checks: write
 
   container-and-sbom:
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
@@ -44,13 +52,13 @@ jobs:
       checks: write
 
   scorecard-audit:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+    uses: ./.github/workflows/scorecard.yml
     permissions:
       contents: read
       security-events: write
       actions: read
       checks: write
-      id-token: write # Added: grants OIDC token generation required by OpenSSF Scorecard
+      id-token: write
 
   siem-telemetry:
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
@@ -62,8 +70,7 @@ jobs:
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
 
   defectdojo-ingestion:
-    needs: [sast-and-secrets, container-and-sbom, iac-and-opa, scorecard-audit]
-    # Enforces data ingestion even if scanners detect critical vulnerabilities and exit with failure codes
+    needs: [sast, secret-scanning, container-and-sbom, iac-and-opa, scorecard-audit]
     if: always()
     uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@4c8abe68e5cc52c311f8a913e942d5fe388a5bdc
     permissions:

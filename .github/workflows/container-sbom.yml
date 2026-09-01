@@ -1,4 +1,4 @@
-name: "Container SCA & SBOM Workflow"
+name: "Dependency Security Scan"
 
 on:
   workflow_call:
@@ -38,19 +38,23 @@ jobs:
       - name: Trivy Container & File System Scan
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          scan-type: "fs"
+          scan-type: "image"
+          image-ref: "local-test-image:latest"
           format: "json"
           output: "trivy-results.json"
           severity: "HIGH,CRITICAL"
-          exit-code: "0"
+          exit-code: "1"
+          ignore-unfixed: true
 
       - name: Upload Trivy JSON Artifact
+        if: always()
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
         with:
           name: trivy-json-report
           path: trivy-results.json
 
       - name: Generate SBOM
+        if: always()
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: "fs"
@@ -58,6 +62,7 @@ jobs:
           output: "sbom.spdx.json"
 
       - name: Upload SBOM Artifact
+        if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: sbom-spdx-report
