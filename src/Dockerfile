@@ -14,7 +14,7 @@ FROM cgr.dev/chainguard/python:latest-dev
 WORKDIR /app
 
 COPY --from=builder /app/venv /app/venv
-COPY main.py .
+COPY app.py .
 
 ENV PATH="/app/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
