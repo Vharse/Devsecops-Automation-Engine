@@ -33,7 +33,7 @@ jobs:
       checks: write
 
   container-and-sbom:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+    uses: ./.github/workflows/container-sbom.yml
     permissions:
       contents: read
       security-events: write
@@ -44,7 +44,7 @@ jobs:
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
 
   iac-and-opa:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+    uses: ./.github/workflows/iac-opa.yml
     permissions:
       contents: read
       security-events: write
@@ -52,6 +52,7 @@ jobs:
       checks: write
 
   scorecard-audit:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     uses: ./.github/workflows/scorecard.yml
     permissions:
       contents: read
@@ -61,7 +62,7 @@ jobs:
       id-token: write
 
   siem-telemetry:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@3f962b2d03501134c40a9fd188ca36477593eeb7
+    uses: ./.github/workflows/siem-telemetry.yml
     permissions:
       contents: read
       actions: read
