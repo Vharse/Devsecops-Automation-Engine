@@ -23,19 +23,28 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check Dockerfile Existence
+        id: check_dockerfile
+        run: |
+          if [ -f "src/Dockerfile" ] || [ -f "Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build Local Container Image
+        if: steps.check_dockerfile.outputs.exists == 'true'
         run: |
           if [ -f "src/Dockerfile" ]; then
             [ -f "src/requirements.txt" ] || touch src/requirements.txt
             docker build -t local-test-image:latest -f src/Dockerfile src/
-          elif [ -f "Dockerfile" ]; then
+          else
             [ -f "requirements.txt" ] || touch requirements.txt
             docker build -t local-test-image:latest .
-          else
-            echo "No Dockerfile found. Skipping container build."
           fi
 
-      - name: Trivy Container & File System Scan
+      - name: Trivy Container Scan
+        if: steps.check_dockerfile.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: "image"
@@ -47,11 +56,12 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy JSON Artifact
-        if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        if: always() && steps.check_dockerfile.outputs.exists == 'true'
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: trivy-json-report
           path: trivy-results.json
+          if-no-files-found: ignore
 
       - name: Generate SBOM
         if: always()
@@ -67,3 +77,4 @@ jobs:
         with:
           name: sbom-spdx-report
           path: sbom.spdx.json
+          if-no-files-found: ignore
