@@ -11,10 +11,6 @@ on:
         required: false
       SLACK_WEBHOOK_URL:
         required: false
-        
-permissions:
-  contents: read
-  pull-requests: read
 
 jobs:
   sast-and-quality:
@@ -22,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
       security-events: write
     outputs:
       semgrep-json-path: semgrep-results.json
