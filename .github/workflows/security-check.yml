@@ -28,6 +28,7 @@ jobs:
     uses: ./.github/workflows/secret-scanning.yml
     permissions:
       contents: read
+      pull-requests: read
       security-events: write
       actions: read
       checks: write
