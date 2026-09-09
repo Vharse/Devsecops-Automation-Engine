@@ -1,4 +1,4 @@
-name: Vharse DevOps Security Guard
+name: Product Security Gate
 
 on:
   push:
