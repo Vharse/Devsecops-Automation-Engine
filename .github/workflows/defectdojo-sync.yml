@@ -1,4 +1,4 @@
-name: "DefectDojo Ingestion Workflow"
+name: "DefectDojo Ingestion"
 
 on:
   workflow_call:
