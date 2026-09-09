@@ -15,6 +15,7 @@ jobs:
     uses: ./.github/workflows/sast.yml
     permissions:
       contents: read
+      pull-requests: read
       security-events: write
       actions: read
       checks: write
