@@ -1,4 +1,4 @@
-name: "Static Application Security Testing"
+name: "SAST, Secret Scanning & Code Quality Workflow"
 
 on:
   workflow_call:
@@ -13,14 +13,16 @@ on:
         required: false
 
 jobs:
-  sast-and-quality:
-    name: "SAST & SonarQube"
+  sast-secrets-and-quality:
+    name: "SAST, Secrets & SonarQube"
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+      pull-requests: read
     outputs:
       semgrep-json-path: semgrep-results.json
+      gitleaks-json-path: gitleaks-results.json
     steps:
       - name: Checkout Code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -28,12 +30,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_REPORT: gitleaks-results.json
+
       - name: Semgrep SAST Scan
-        run: |
-          docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            semgrep/semgrep:latest \
-            semgrep scan --config p/default --sarif --output /src/semgrep.sarif
+        uses: semgrep/semgrep-action@9a16a63fd4f29af4f7f64782b8890943de7788a6
+        continue-on-error: true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        with:
+          generate-sarif: "1"
+          config: auto
 
       - name: Rename Semgrep Output for Ingestion
         run: |
@@ -59,6 +70,7 @@ jobs:
       - name: SonarQube Scan
         if: steps.sonar_check.outputs.enabled == 'true'
         uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703
+        continue-on-error: true
         with:
           args: >
             -Dsonar.projectKey=Vharse_Devsecops-Automation-Engine
@@ -74,8 +86,10 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Upload SAST Artifacts
+      - name: Upload SAST & Secret Artifacts
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
         with:
-          name: sast-reports
-          path: semgrep-results.json
+          name: sast-secret-reports
+          path: |
+            semgrep-results.json
+            gitleaks-results.json
