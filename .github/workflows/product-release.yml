@@ -3,22 +3,25 @@ name: "Product Release"
 on:
   push:
     tags:
-      - 'v*.*.*' # Required to export the image digest
+      - 'v*.*.*'
+
+# Enforce least-privilege token permissions globally across the workflow
+permissions: read-all
 
 jobs:
   build-and-sign:
     name: "Build, Sign & Publish Artifacts"
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: write
+      contents: write # Required for GitHub Release creation
+      packages: write # Required for pushing to GHCR
       id-token: write # Required for Cosign keyless signing
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.0.0 # Required to export the image digest
+        uses: docker/setup-buildx-action@c0bcd58f26a8473770f1a01aab00b028d2d1ee78 # v3.8.0
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@327cd5a69de6c009b9ce71bce8395f28e651bf99 # v3.0.0
@@ -50,7 +53,7 @@ jobs:
           cosign sign --yes "ghcr.io/${{ github.repository }}@${{ steps.build-and-push.outputs.digest }}"
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@f325610c0e5a40b90eef5f8f8702c40c313a0705 # v0.17.9
         with:
           image: "ghcr.io/${{ github.repository }}@${{ steps.build-and-push.outputs.digest }}"
           format: spdx-json
