@@ -3,7 +3,7 @@ name: "Product Release"
 on:
   push:
     tags:
-      - 'v*.*.*' # Triggers on v1.0.0, v1.0.1, etc.
+      - 'v*.*.*'
 
 jobs:
   build-and-sign:
