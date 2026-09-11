@@ -6,7 +6,8 @@ on:
       - 'v*.*.*'
 
 # Global least-privilege token restriction required for OpenSSF Scorecard compliance
-permissions: read-all
+permissions:
+  contents: read
 
 # Prevent race conditions while guaranteeing release builds finish completely
 concurrency:
