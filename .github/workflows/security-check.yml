@@ -1,4 +1,4 @@
-name: Vharse DevOps Security Guard
+name: Product Security Gate
 
 on:
   push:
@@ -9,6 +9,8 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+  
+permissions: read-all
 
 jobs:
   sast:

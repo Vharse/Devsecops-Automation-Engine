@@ -1,4 +1,4 @@
-name: "SAST, Secret Scanning & Code Quality Workflow"
+name: "Static Application Security Testing"
 
 on:
   workflow_call:
