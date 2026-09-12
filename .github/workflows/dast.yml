@@ -52,8 +52,7 @@ jobs:
       - name: "Create Report Directory"
         run: |
           mkdir -p ${{ github.workspace }}/zap-results
-          # Set ownership to ZAP default user (UID 1000:1000) instead of world-writable 777
-          chown -R 1000:1000 ${{ github.workspace }}/zap-results
+          sudo chown -R 1000:1000 ${{ github.workspace }}/zap-results
 
       - name: "Run ZAP Automation Framework via Docker Container"
         run: |
