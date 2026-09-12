@@ -63,12 +63,26 @@ jobs:
             zap.sh -cmd -autorun /zap/wrk/${{ inputs.zap_plan_path }} || true
 
       - name: "Verify Scan Execution"
+        env:
+          WORKSPACE: ${{ github.workspace }}
         run: |
-          if [ -f "zap-report.json" ]; then
-            echo "ZAP JSON report generated successfully."
+          set -euo pipefail
+
+          if [ -f "zap-results/zap-report.json" ]; then
+            # Secure copy preventing accidental symlink traversal
+            cp --no-target-directory zap-results/zap-report.json ./zap-report.json
+            echo "ZAP JSON report verified from results directory."
+          elif [ -f "zap-report.json" ]; then
+            echo "ZAP JSON report verified from root directory."
           else
-            echo "Error: ZAP report missing." && exit 1
+            echo "::error::ZAP report generation failed. File not found."
+            # Debug without dumping file permissions or sensitive file names unnecessarily
+            find "$WORKSPACE" -maxdepth 2 -name "*.json"
+            exit 1
           fi
+
+          # Optional Integrity Check: Ensure file is non-empty and valid JSON
+          jq empty zap-report.json || { echo "::error::ZAP report is corrupted or invalid JSON."; exit 1; }
 
       - name: "Ingest Findings into DefectDojo"
         if: always()
