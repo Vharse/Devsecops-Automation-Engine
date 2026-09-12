@@ -83,7 +83,7 @@ jobs:
       security-events: write
     with:
       target_url: "http://localhost:8080"
-      zap_plan_path: ".zap/zap.yaml"
+      zap_plan_path: ".zap/zap-plan.yaml"
     secrets:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_API_KEY }}
