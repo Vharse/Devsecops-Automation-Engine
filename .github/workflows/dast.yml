@@ -61,12 +61,11 @@ jobs:
           docker run --rm \
             --user 1000:1000 \
             --network zap-net \
-            -v ${{ github.workspace }}/zap-results:/zap/wrk/zap-results:rw \
-            -v ${{ github.workspace }}/${{ inputs.zap_plan_path }}:/zap/wrk/plan.yaml:ro \
+            -v ${{ github.workspace }}:/zap/wrk/:rw \
             -e APP_USER="${{ secrets.APP_USER }}" \
             -e APP_PASSWORD="${{ secrets.APP_PASSWORD }}" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap.sh -cmd -autorun /zap/wrk/plan.yaml
+            zap.sh -cmd -autorun /zap/wrk/${{ inputs.zap_plan_path }}
 
       - name: "Verify Scan Execution"
         env:
