@@ -39,10 +39,12 @@ jobs:
 
       - name: "Build and Launch Target Application"
         run: |
+          docker network create zap-net
           docker build -t target-app src/
-          docker run -d --name target-container -p 8080:8080 target-app
+          docker run -d --name target-container --network zap-net -p 8080:8080 target-app
+
           echo "Waiting for target application at ${{ inputs.target_url }}..."
-          if ! timeout 60s bash -c 'until curl -s ${{ inputs.target_url }} > /dev/null; do sleep 2; done'; then
+          if ! timeout 60s bash -c 'until curl -s http://localhost:8080 > /dev/null; do sleep 2; done'; then
             echo "::error::Target application healthcheck timed out. Printing logs:"
             docker logs target-container
             exit 1
@@ -52,13 +54,13 @@ jobs:
       - name: "Create Report Directory"
         run: |
           mkdir -p ${{ github.workspace }}/zap-results
-          sudo chown -R 1000:1000 ${{ github.workspace }}/zap-results
+          chmod 777 ${{ github.workspace }}/zap-results
 
       - name: "Run ZAP Automation Framework via Docker Container"
         run: |
           docker run --rm \
             --user 1000:1000 \
-            --network="host" \
+            --network zap-net \
             -v ${{ github.workspace }}/zap-results:/zap/wrk/zap-results:rw \
             -v ${{ github.workspace }}/${{ inputs.zap_plan_path }}:/zap/wrk/plan.yaml:ro \
             -e APP_USER="${{ secrets.APP_USER }}" \
