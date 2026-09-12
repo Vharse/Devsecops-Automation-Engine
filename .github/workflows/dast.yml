@@ -52,19 +52,20 @@ jobs:
       - name: "Create Report Directory"
         run: |
           mkdir -p ${{ github.workspace }}/zap-results
-          # Grant write access so unprivileged container user 'zap' (UID 1000) can output reports
-          chmod -R 777 ${{ github.workspace }}/zap-results
+          # Set ownership to ZAP default user (UID 1000:1000) instead of world-writable 777
+          chown -R 1000:1000 ${{ github.workspace }}/zap-results
 
       - name: "Run ZAP Automation Framework via Docker Container"
         run: |
           docker run --rm \
-            --user root \
+            --user 1000:1000 \
             --network="host" \
-            -v ${{ github.workspace }}:/zap/wrk/:rw \
+            -v ${{ github.workspace }}/zap-results:/zap/wrk/zap-results:rw \
+            -v ${{ github.workspace }}/${{ inputs.zap_plan_path }}:/zap/wrk/plan.yaml:ro \
             -e APP_USER="${{ secrets.APP_USER }}" \
             -e APP_PASSWORD="${{ secrets.APP_PASSWORD }}" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap.sh -cmd -autorun /zap/wrk/${{ inputs.zap_plan_path }} || true
+            zap.sh -cmd -autorun /zap/wrk/plan.yaml
 
       - name: "Verify Scan Execution"
         env:
