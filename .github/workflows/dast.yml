@@ -50,11 +50,15 @@ jobs:
           echo "Target application is live."
 
       - name: "Create Report Directory"
-        run: mkdir -p ${{ github.workspace }}/zap-results
+        run: |
+          mkdir -p ${{ github.workspace }}/zap-results
+          # Grant write access so unprivileged container user 'zap' (UID 1000) can output reports
+          chmod -R 777 ${{ github.workspace }}/zap-results
 
       - name: "Run ZAP Automation Framework via Docker Container"
         run: |
           docker run --rm \
+            --user root \
             --network="host" \
             -v ${{ github.workspace }}:/zap/wrk/:rw \
             -e APP_USER="${{ secrets.APP_USER }}" \
