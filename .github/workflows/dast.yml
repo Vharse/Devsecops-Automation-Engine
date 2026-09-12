@@ -39,7 +39,8 @@ jobs:
 
       - name: "Build and Launch Target Application"
         run: |
-          docker compose up -d --build
+          docker build -t target-app src/
+          docker run -d --name target-container -p 8080:8080 target-app
           echo "Waiting for target application at ${{ inputs.target_url }}..."
           timeout 60s bash -c 'until curl -s ${{ inputs.target_url }} > /dev/null; do sleep 2; done'
           echo "Target application is live."
