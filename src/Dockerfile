@@ -21,4 +21,4 @@ ENV PYTHONUNBUFFERED=1
 
 USER nonroot
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "app.py"]
