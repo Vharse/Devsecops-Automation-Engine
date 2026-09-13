@@ -3,7 +3,7 @@ DevSecOps Automation Engine
 
 An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, decoupled reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, independent Secret Scanning, Software Bill of Materials (SBOM) generation, Dynamic Application Security Testing (DAST) with authenticated scan coverage, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, centralized vulnerability management in DefectDojo, and real-time SIEM event correlation.
 
-🏛️ **Architecture Overview**
+**Architecture Overview**
 
 The DevSecOps Automation Engine functions as a centralized security authority. Client repositories or local pipelines execute modular, parallel reusable workflows to enforce shift-left security before code compilation or deployment.
 
