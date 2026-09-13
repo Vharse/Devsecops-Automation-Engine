@@ -39,7 +39,7 @@ def main():
     logger.info(json.dumps({"event": "server_start", "port": port}))
     
     try:
-        httpd.serve_forever() # nosonar
+        httpd.serve_forever()  # nosonar
     except KeyboardInterrupt:
         httpd.server_close()
 
