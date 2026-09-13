@@ -75,6 +75,21 @@ jobs:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
 
+  dast:
+    name: "DAST Scan"
+    uses: ./.github/workflows/dast.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      target_url: "http://localhost:8080"
+      zap_plan_path: ".zap/zap-plan.yaml"
+    secrets:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_API_KEY }}
+      APP_USER: ${{ secrets.APP_USER }}
+      APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+
   defectdojo-ingestion:
     needs: [sast, secret-scanning, container-and-sbom, iac-and-opa, scorecard-audit]
     if: always()
