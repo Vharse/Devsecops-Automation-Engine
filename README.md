@@ -1,6 +1,8 @@
+```
 DevSecOps Automation Engine
 
 An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, decoupled reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, independent Secret Scanning, Software Bill of Materials (SBOM) generation, Dynamic Application Security Testing (DAST) with authenticated scan coverage, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, centralized vulnerability management in DefectDojo, and real-time SIEM event correlation.
+
 🏛️ Architecture Overview
 
 The DevSecOps Automation Engine functions as a centralized security authority. Client repositories or local pipelines execute modular, parallel reusable workflows to enforce shift-left security before code compilation or deployment.
@@ -46,7 +48,7 @@ The DevSecOps Automation Engine functions as a centralized security authority. C
                                         │            Alert Dispatcher             │
                                         └─────────────────────────────────────────┘
 
-🚀 Key Accomplishments & Technical Features
+## Key Accomplishments & Technical Features
 
     Decoupled Reusable Workflow Architecture (security-check.yml)
 
@@ -106,7 +108,7 @@ The DevSecOps Automation Engine functions as a centralized security authority. C
 
         Dispatches formatted real-time alert notifications (PASSED / FAILED) with pipeline metadata and actor details to Slack security channels via incoming webhooks.
 
-📂 Repository Structure
+Repository Structure
 Plaintext
 
 Devsecops-Automation-Engine/
@@ -134,7 +136,7 @@ Devsecops-Automation-Engine/
 ├── README.md                         # System documentation
 └── SECURITY.md                       # Vulnerability disclosure and security policy
 
-🔑 Required Repository Secrets
+Required Repository Secrets
 
 To run all pipeline jobs successfully, configure these secrets under Settings → Secrets and variables → Actions:
 Secret Name	Description	Example / Scope
@@ -148,10 +150,11 @@ DEFECTDOJO_API_KEY	User API Key for DefectDojo ingestion	Token 8a9b...
 ELASTIC_HOST	Endpoint URL for Elastic SIEM cluster	[https://elastic.your-domain.com:9243](https://elastic.your-domain.com:9243)
 ELASTIC_API_KEY	Base64 encoded Elastic API Key for log ingestion	V2...==
 SLACK_WEBHOOK_URL	(Optional) Slack Incoming Webhook URL for automated channel alerting	[https://hooks.slack.com/services/](https://hooks.slack.com/services/)...
-🛠️ Usage & Integration
+Usage & Integration
 Reusing this Engine in Client Repositories
 
 To consume this centralized security engine inside any client repository, create .github/workflows/security-check.yml in your target repo:
+```
 YAML
 
 name: Security Check
@@ -172,3 +175,4 @@ jobs:
       checks: write
       actions: read
     secrets: inherit
+```
