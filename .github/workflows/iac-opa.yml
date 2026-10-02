@@ -16,7 +16,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Open Policy Agent
-        uses: Vharse/open-policy-agent/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1
+        uses: Vharse/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1
         with:
           version: latest
 
