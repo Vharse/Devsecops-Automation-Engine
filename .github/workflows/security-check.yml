@@ -12,6 +12,11 @@ concurrency:
 
 permissions:
   contents: read
+  security-events: write
+  pull-requests: read
+  checks: write
+  actions: read
+  id-token: write
 
 jobs:
   sast:
