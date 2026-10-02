@@ -58,7 +58,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bec833687692e9658d86180f # v3.7.0
+        uses: Vharse/cosign-installer@dc72c7d5c4d10cd6bec833687692e9658d86180f # v3.7.0
 
       - name: Cryptographically Sign Image (Keyless OIDC)
         run: |
