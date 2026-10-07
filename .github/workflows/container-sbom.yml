@@ -45,7 +45,7 @@ jobs:
 
       - name: Trivy Container Scan
         if: steps.check_dockerfile.outputs.exists == 'true'
-        uses: Vharse/trivy-action@ffb2604c943fe653f6784ebe95439d07dd723385
+        uses: Vharse/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: "image"
           image-ref: "local-test-image:latest"
