@@ -23,18 +23,24 @@ on:
       APP_PASSWORD:
         required: false
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   dast-scan:
     name: "OWASP ZAP Automation Framework Scan"
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
 
     steps:
       - name: "Checkout Source Code"
+<<<<<<< HEAD
         # Pinned to full commit SHA for Vharse/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         uses: Vharse/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+=======
+        # Pinned to full commit SHA for Vharse/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: Vharse/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+>>>>>>> 8ea30ce312e3bbee5e7e1d845cacdae6538f36c0
 
       - name: "Build and Launch Target Application"
         run: |
