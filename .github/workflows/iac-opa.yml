@@ -11,7 +11,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code
-        uses: ./.github/actions/checkout # v4.4.0
+        uses: Vharse/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4.4.0
         with:
           persist-credentials: false
 
