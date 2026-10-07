@@ -25,7 +25,7 @@ jobs:
       gitleaks-json-path: gitleaks-results.json
     steps:
       - name: Checkout Code
-        uses: Vharse/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: ./.github/actions/checkout # v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -87,7 +87,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       - name: Upload SAST & Secret Artifacts
-        uses: Vharse/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        uses: ./.github/actions/upload-artifact
         with:
           name: sast-secret-reports
           path: |

@@ -11,12 +11,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code
-        uses: Vharse/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: ./.github/actions/checkout # v4.4.0
         with:
           persist-credentials: false
 
       - name: Setup Open Policy Agent
-        uses: Vharse/setup-opa@b2b258e089860efaadaaf71bf6e3aecb4a3eeff1
+        uses: ./.github/actions/setup-opa
         with:
           version: latest
 
