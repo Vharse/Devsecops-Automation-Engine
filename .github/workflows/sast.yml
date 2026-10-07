@@ -69,7 +69,7 @@ jobs:
 
       - name: SonarQube Scan
         if: steps.sonar_check.outputs.enabled == 'true'
-        uses: Vharse/sonarqube-scan-action@7f555debe3acd74da69f406c048ab7fdda194dae
+        uses: Vharse/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703
         continue-on-error: true
         with:
           args: >
