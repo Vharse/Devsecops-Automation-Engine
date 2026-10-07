@@ -9,14 +9,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
+  
 permissions:
   contents: read
-  security-events: write
-  pull-requests: read
-  checks: write
-  actions: read
-  id-token: write
 
 jobs:
   sast:
@@ -52,6 +47,9 @@ jobs:
   dast:
     name: "DAST Scan"
     uses: ./.github/workflows/dast.yml
+    permissions:
+      contents: read
+      security-events: write
     with:
       target_url: "http://localhost:8080"
       zap_plan_path: ".zap/zap-plan.yaml"
