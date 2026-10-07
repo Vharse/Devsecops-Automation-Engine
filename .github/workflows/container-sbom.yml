@@ -19,7 +19,7 @@ jobs:
       trivy-json-path: trivy-results.json
     steps:
       - name: Checkout Code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: Vharse/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
@@ -45,7 +45,7 @@ jobs:
 
       - name: Trivy Container Scan
         if: steps.check_dockerfile.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        uses: Vharse/trivy-action@defe9ae8802b5010c934c2f4f4040a9b3c1e678f # v0.36.0
         with:
           scan-type: "image"
           image-ref: "local-test-image:latest"
@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload Trivy JSON Artifact
         if: always() && steps.check_dockerfile.outputs.exists == 'true'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: Vharse/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: trivy-json-report
           path: trivy-results.json
@@ -65,7 +65,7 @@ jobs:
 
       - name: Generate SBOM
         if: always()
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        uses: Vharse/trivy-action@defe9ae8802b5010c934c2f4f4040a9b3c1e678f # v0.36.0
         with:
           scan-type: "fs"
           format: "spdx-json"
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload SBOM Artifact
         if: always()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        uses: Vharse/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: sbom-spdx-report
           path: sbom.spdx.json
