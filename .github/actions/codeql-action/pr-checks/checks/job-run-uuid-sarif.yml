@@ -1,0 +1,29 @@
+name: "Job run UUID added to SARIF"
+description: "Tests that the job run UUID is added to the SARIF output"
+versions:
+  - nightly-latest
+steps:
+  - uses: ./../action/init
+    id: init
+    with:
+      languages: javascript
+      tools: ${{ steps.prepare-test.outputs.tools-url }}
+  - uses: ./../action/analyze
+    with:
+      output: "${{ runner.temp }}/results"
+  - name: Upload SARIF
+    uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    with:
+      name: ${{ matrix.os }}-${{ matrix.version }}.sarif.json
+      path: "${{ runner.temp }}/results/javascript.sarif"
+      retention-days: 7
+  - name: Check results
+    run: |
+      cd "$RUNNER_TEMP/results"
+      actual=$(jq -r '.runs[0].properties.jobRunUuid' javascript.sarif)
+      if [[ "$actual" != "$CODEQL_ACTION_JOB_RUN_UUID" ]]; then
+        echo "Expected SARIF output to contain job run UUID '$CODEQL_ACTION_JOB_RUN_UUID', but found '$actual'."
+        exit 1
+      else
+        echo "Found job run UUID '$actual'."
+      fi

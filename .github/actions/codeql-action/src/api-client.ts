@@ -1,0 +1,463 @@
+import * as core from "@actions/core";
+import * as githubUtils from "@actions/github/lib/utils";
+import * as retry from "@octokit/plugin-retry";
+import { RequestRequestOptions } from "@octokit/types";
+import {
+  ProxyAgent,
+  RequestInfo,
+  RequestInit,
+  fetch as undiciFetch,
+} from "undici";
+
+import type { ActionState } from "./action-common";
+import { getActionVersion, getRequiredInput } from "./actions-util";
+import {
+  ActionsEnvVars,
+  EnvVar,
+  ReadOnlyEnv,
+  RegistryProxyVars,
+  getEnv,
+} from "./environment";
+import { Logger } from "./logging";
+import { getRepositoryNwo, RepositoryNwo } from "./repository";
+import {
+  asHTTPError,
+  ConfigurationError,
+  getRequiredEnvParam,
+  GITHUB_DOTCOM_URL,
+  GitHubVariant,
+  GitHubVersion,
+  parseGitHubUrl,
+  parseMatrixInput,
+} from "./util";
+
+const GITHUB_ENTERPRISE_VERSION_HEADER = "x-github-enterprise-version";
+
+/**
+ * HTTP status codes that should not be retried.
+ *
+ * The default Octokit list is 400, 401, 403, 404, 410, 422, and 451. We have
+ * observed transient errors with authentication, so we remove 401, 403, and 404
+ * from the default list to ensure that these errors are retried.
+ */
+export const DO_NOT_RETRY_STATUSES = [400, 410, 422, 451];
+
+export type GitHubApiCombinedDetails = GitHubApiDetails &
+  GitHubApiExternalRepoDetails;
+
+export interface GitHubApiDetails {
+  auth: string;
+  url: string;
+  apiURL: string | undefined;
+}
+
+export interface GitHubApiExternalRepoDetails {
+  externalRepoAuth?: string;
+  url: string;
+  apiURL: string | undefined;
+}
+
+/**
+ * Gets the configuration for the private registry authentication proxy,
+ * if it is available in the environment.
+ *
+ * @param action The required Action state.
+ * @returns The hostname, port, and CA retrieved from the corresponding environment variables.
+ */
+export function getRegistryProxyConfig(action: ActionState<["ReadOnlyEnv"]>) {
+  return {
+    host: action.env.getOptional(RegistryProxyVars.PROXY_HOST),
+    port: action.env.getOptional(RegistryProxyVars.PROXY_PORT),
+    ca: action.env.getOptional(RegistryProxyVars.PROXY_CA_CERTIFICATE),
+  };
+}
+
+/**
+ * Gets the configuration for the private registry authentication proxy,
+ * and uses it to initialise a corresponding `ProxyAgent`.
+ *
+ * @param action The required Action state.
+ * @returns A `ProxyAgent` corresponding to the private registry proxy,
+ *          or `undefined` if we couldn't retrieve the host and port.
+ */
+export function getRegistryProxy(
+  action: ActionState<["Logger", "ReadOnlyEnv"]>,
+): ProxyAgent | undefined {
+  const { host, port, ca } = getRegistryProxyConfig(action);
+
+  if (host && port) {
+    const uri = `http://${host}:${port}`;
+    action.logger.debug(
+      `Using private registry proxy at '${uri}' for API client.`,
+    );
+    return new ProxyAgent({
+      uri,
+      keepAliveTimeout: 10,
+      keepAliveMaxTimeout: 10,
+      requestTls: ca ? { ca } : undefined,
+    });
+  }
+
+  return undefined;
+}
+
+/**
+ * Constructs a `RequestRequestOptions` with a custom `fetch` implementation
+ * that uses `dispatcher` as a proxy for requests.
+ *
+ * @param dispatcher The proxy to use, if any.
+ */
+export function makeProxyRequestOptions(
+  dispatcher: ProxyAgent | undefined,
+): RequestRequestOptions | undefined {
+  // If we don't have a custom `ProxyAgent`, return the defaults.
+  if (dispatcher === undefined) {
+    return githubUtils.defaults.request;
+  }
+
+  // Otherwise, construct the custom `fetch` and add it onto the defaults.
+  return {
+    ...githubUtils.defaults.request,
+    fetch: (req: RequestInfo, init?: RequestInit) => {
+      return undiciFetch(req, { ...init, dispatcher });
+    },
+  };
+}
+
+/** The type of GitHub API client we use. */
+export type ApiClient = InstanceType<typeof githubUtils.GitHub>;
+
+/** Options for `createApiClientWithDetails`. */
+interface CreateApiClientOptions {
+  allowExternal?: boolean;
+  proxy?: ProxyAgent;
+}
+
+function createApiClientWithDetails(
+  apiDetails: GitHubApiCombinedDetails,
+  { allowExternal = false, proxy = undefined }: CreateApiClientOptions = {},
+): ApiClient {
+  const auth =
+    (allowExternal && apiDetails.externalRepoAuth) || apiDetails.auth;
+  const retryingOctokit = githubUtils.GitHub.plugin(retry.retry);
+  const requestOptions = makeProxyRequestOptions(proxy);
+  return new retryingOctokit(
+    githubUtils.getOctokitOptions(auth, {
+      baseUrl: apiDetails.apiURL,
+      userAgent: `CodeQL-Action/${getActionVersion()}`,
+      log: {
+        debug: core.debug,
+        info: core.info,
+        warn: core.warning,
+        error: core.error,
+      },
+      request: requestOptions,
+      retry: {
+        doNotRetry: DO_NOT_RETRY_STATUSES,
+      },
+    }),
+  );
+}
+
+export function getApiDetails(env: ReadOnlyEnv = getEnv()): GitHubApiDetails {
+  return {
+    auth: getRequiredInput("token"),
+    url: env.getRequired(ActionsEnvVars.GITHUB_SERVER_URL),
+    apiURL: env.getRequired(ActionsEnvVars.GITHUB_API_URL),
+  };
+}
+
+export function getApiClient(env: ReadOnlyEnv = getEnv()) {
+  return createApiClientWithDetails(getApiDetails(env));
+}
+
+export function getApiClientWithExternalAuth(
+  apiDetails: GitHubApiCombinedDetails,
+  proxy?: ProxyAgent,
+) {
+  return createApiClientWithDetails(apiDetails, { allowExternal: true, proxy });
+}
+
+/**
+ * Gets a value for the `Authorization` header for a request to `url`; or `undefined` if the
+ * `Authorization` header should not be set for `url`.
+ *
+ * @param logger The logger to use for debugging messages.
+ * @param apiDetails Details of the GitHub API we are using.
+ * @param url The URL for which we want to add an `Authorization` header.
+ *
+ * @returns The value for the `Authorization` header or `undefined` if it shouldn't be populated.
+ */
+export function getAuthorizationHeaderFor(
+  logger: Logger,
+  apiDetails: GitHubApiDetails,
+  url: string,
+): string | undefined {
+  // We only want to provide an authorization header if we are downloading
+  // from the same GitHub instance the Action is running on.
+  // This avoids leaking Enterprise tokens to dotcom.
+  if (
+    url.startsWith(`${apiDetails.url}/`) ||
+    (apiDetails.apiURL && url.startsWith(`${apiDetails.apiURL}/`))
+  ) {
+    logger.debug(`Providing an authorization token.`);
+    return `token ${apiDetails.auth}`;
+  }
+
+  logger.debug(`Not using an authorization token.`);
+  return undefined;
+}
+
+let cachedGitHubVersion: GitHubVersion | undefined = undefined;
+
+export async function getGitHubVersionFromApi(
+  apiClient: any,
+  apiDetails: GitHubApiDetails,
+): Promise<GitHubVersion> {
+  // We can avoid making an API request in the standard dotcom case
+  if (parseGitHubUrl(apiDetails.url) === GITHUB_DOTCOM_URL) {
+    return { type: GitHubVariant.DOTCOM };
+  }
+
+  try {
+    // Doesn't strictly have to be the meta endpoint as we're only
+    // using the response headers which are available on every request.
+    //
+    // See https://docs.github.com/en/rest/meta/meta#get-github-meta-information.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    const response = await apiClient.rest.meta.get();
+
+    // This happens on dotcom, although we expect to have already returned in that
+    // case. This can also serve as a fallback in cases we haven't foreseen.
+    if (response.headers[GITHUB_ENTERPRISE_VERSION_HEADER] === undefined) {
+      return { type: GitHubVariant.DOTCOM };
+    }
+
+    if (response.headers[GITHUB_ENTERPRISE_VERSION_HEADER] === "ghe.com") {
+      return { type: GitHubVariant.GHEC_DR };
+    }
+
+    const version = response.headers[
+      GITHUB_ENTERPRISE_VERSION_HEADER
+    ] as string;
+    return { type: GitHubVariant.GHES, version };
+  } catch (err) {
+    throw wrapApiConfigurationError(err);
+  }
+}
+
+/**
+ * Report the GitHub server version. This is a wrapper around
+ * util.getGitHubVersion() that automatically supplies GitHub API details using
+ * GitHub Action inputs.
+ *
+ * @returns GitHub version
+ */
+export async function getGitHubVersion(): Promise<GitHubVersion> {
+  if (cachedGitHubVersion === undefined) {
+    const apiDetails = getApiDetails();
+    cachedGitHubVersion = await getGitHubVersionFromApi(
+      createApiClientWithDetails(apiDetails),
+      apiDetails,
+    );
+  }
+  return cachedGitHubVersion;
+}
+
+/**
+ * Get the path of the currently executing workflow relative to the repository root.
+ *
+ * See https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run
+ * and https://docs.github.com/en/rest/actions/workflows#get-a-workflow.
+ */
+export async function getWorkflowRelativePath(): Promise<string> {
+  const repo_nwo = getRepositoryNwo();
+  const run_id = Number(getRequiredEnvParam("GITHUB_RUN_ID"));
+
+  const apiClient = getApiClient();
+  const runsResponse = await apiClient.request(
+    "GET /repos/:owner/:repo/actions/runs/:run_id?exclude_pull_requests=true",
+    {
+      owner: repo_nwo.owner,
+      repo: repo_nwo.repo,
+      run_id,
+    },
+  );
+  const workflowUrl = runsResponse.data.workflow_url;
+
+  const requiredWorkflowRegex =
+    /\/repos\/[^/]+\/[^/]+\/actions\/required_workflows\/[^/]+/;
+  if (!workflowUrl || requiredWorkflowRegex.test(workflowUrl as string)) {
+    // For required workflows, the workflowUrl is invalid so we cannot fetch more informations
+    // about the workflow.
+    // However, the path is available in the original response.
+    return runsResponse.data.path as string;
+  }
+
+  const workflowResponse = await apiClient.request(`GET ${workflowUrl}`);
+
+  return workflowResponse.data.path as string;
+}
+
+/**
+ * Get the analysis key parameter for the current job.
+ *
+ * This will combine the workflow path and current job name.
+ * Computing this the first time requires making requests to
+ * the GitHub API, but after that the result will be cached.
+ */
+export async function getAnalysisKey(): Promise<string> {
+  let analysisKey = process.env[EnvVar.ANALYSIS_KEY];
+  if (analysisKey !== undefined) {
+    return analysisKey;
+  }
+
+  const workflowPath = await getWorkflowRelativePath();
+  const jobName = getRequiredEnvParam("GITHUB_JOB");
+
+  analysisKey = `${workflowPath}:${jobName}`;
+  core.exportVariable(EnvVar.ANALYSIS_KEY, analysisKey);
+  return analysisKey;
+}
+
+export async function getAutomationID(): Promise<string> {
+  const analysis_key = await getAnalysisKey();
+  const environment = getRequiredInput("matrix");
+
+  return computeAutomationID(analysis_key, environment);
+}
+
+export function computeAutomationID(
+  analysis_key: string,
+  environment: string | undefined,
+): string {
+  let automationID = `${analysis_key}/`;
+
+  const matrix = parseMatrixInput(environment);
+  if (matrix !== undefined) {
+    // the id has to be deterministic so we sort the fields
+    for (const entry of Object.entries(matrix).sort()) {
+      if (typeof entry[1] === "string") {
+        automationID += `${entry[0]}:${entry[1]}/`;
+      } else {
+        // In code scanning we just handle the string values,
+        // the rest get converted to the empty string
+        automationID += `${entry[0]}:/`;
+      }
+    }
+  }
+
+  return automationID;
+}
+
+export interface ActionsCacheItem {
+  created_at?: string;
+  id?: number;
+  key?: string;
+  size_in_bytes?: number;
+}
+
+/**
+ * List all Actions cache entries starting with the provided key prefix and matching the provided ref.
+ *
+ * See https://docs.github.com/en/rest/actions/cache#list-github-actions-caches-for-a-repository.
+ */
+export async function listActionsCaches(
+  keyPrefix: string,
+  ref?: string,
+): Promise<ActionsCacheItem[]> {
+  const repositoryNwo = getRepositoryNwo();
+
+  return await getApiClient().paginate(
+    "GET /repos/{owner}/{repo}/actions/caches",
+    {
+      owner: repositoryNwo.owner,
+      repo: repositoryNwo.repo,
+      key: keyPrefix,
+      ref,
+    },
+  );
+}
+
+/**
+ * Delete an Actions cache item by its ID.
+ *
+ * See https://docs.github.com/en/rest/actions/cache#delete-a-github-actions-cache-for-a-repository-using-a-cache-id.
+ */
+export async function deleteActionsCache(id: number) {
+  const repositoryNwo = getRepositoryNwo();
+
+  await getApiClient().rest.actions.deleteActionsCacheById({
+    owner: repositoryNwo.owner,
+    repo: repositoryNwo.repo,
+    cache_id: id,
+  });
+}
+
+/**
+ * Retrieve all custom repository properties.
+ *
+ * See https://docs.github.com/en/rest/repos/custom-properties#get-all-custom-property-values-for-a-repository.
+ */
+export async function getRepositoryProperties(repositoryNwo: RepositoryNwo) {
+  return getApiClient().request("GET /repos/:owner/:repo/properties/values", {
+    owner: repositoryNwo.owner,
+    repo: repositoryNwo.repo,
+  });
+}
+
+function isEnablementError(msg: string) {
+  return [
+    /Code Security must be enabled/i,
+    /Advanced Security must be enabled/i,
+    /Code Scanning is not enabled/i,
+    /Code Quality is not enabled/i,
+  ].some((pattern) => pattern.test(msg));
+}
+
+// TODO: Move to `error-messages.ts` after refactoring import order to avoid cycle
+// since `error-messages.ts` currently depends on this file.
+export function getFeatureEnablementError(message: string): string {
+  return `Please verify that the necessary features are enabled: ${message}`;
+}
+
+/**
+ * Decides whether `e` is a known error returned by the GitHub API that we should
+ * classify as a `ConfigurationError`.
+ *
+ * @param e The error to classify.
+ * @returns Either `e` or a corresponding `ConfigurationError`.
+ */
+export function wrapApiConfigurationError<T>(e: T): T | ConfigurationError {
+  const httpError = asHTTPError(e);
+  if (httpError !== undefined) {
+    if (
+      [
+        /API rate limit exceeded/,
+        /commit not found/,
+        /Resource not accessible by integration/,
+        /ref .* not found in this repository/,
+      ].some((pattern) => pattern.test(httpError.message))
+    ) {
+      return new ConfigurationError(httpError.message);
+    }
+    if (
+      httpError.message.includes("Bad credentials") ||
+      httpError.message.includes("Not Found") ||
+      httpError.message.includes("Requires authentication")
+    ) {
+      return new ConfigurationError(
+        "Please check that your token is valid and has the required permissions: contents: read, security-events: write",
+      );
+    }
+    if (httpError.status === 403 && isEnablementError(httpError.message)) {
+      return new ConfigurationError(
+        getFeatureEnablementError(httpError.message),
+      );
+    }
+    if (httpError.status === 429) {
+      return new ConfigurationError("API rate limit exceeded");
+    }
+  }
+  return e;
+}

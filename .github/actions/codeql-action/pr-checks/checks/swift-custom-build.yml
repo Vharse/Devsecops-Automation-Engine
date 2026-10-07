@@ -1,0 +1,34 @@
+name: "Swift analysis using a custom build command"
+description: "Tests creation of a Swift database using custom build"
+versions:
+  - linked
+  - default
+  - nightly-latest
+operatingSystems:
+  - os: macos
+    runner-image: macos-latest-xlarge
+installGo: true
+installDotNet: true
+env:
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+steps:
+  - uses: ./../action/init
+    id: init
+    with:
+      languages: swift
+      tools: ${{ steps.prepare-test.outputs.tools-url }}
+  - name: Check working directory
+    run: pwd
+  - name: Build code
+    run: ./build.sh
+  - uses: ./../action/analyze
+    id: analysis
+    with:
+      upload-database: false
+  - name: Check database
+    run: |
+      SWIFT_DB="${{ fromJson(steps.analysis.outputs.db-locations).swift }}"
+      if [[ ! -d "$SWIFT_DB" ]]; then
+        echo "Did not create a database for Swift."
+        exit 1
+      fi

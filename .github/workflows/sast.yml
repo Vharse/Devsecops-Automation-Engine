@@ -31,14 +31,14 @@ jobs:
           persist-credentials: false
 
       - name: Gitleaks Secret Scan
-        uses: Vharse/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        uses: ./.github/actions/gitleaks-action
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_REPORT: gitleaks-results.json
 
       - name: Semgrep SAST Scan
-        uses: Vharse/semgrep-action@9a16a63fd4f29af4f7f64782b8890943de7788a6
+        uses: ./.github/actions/semgrep-action
         continue-on-error: true
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
@@ -69,7 +69,7 @@ jobs:
 
       - name: SonarQube Scan
         if: steps.sonar_check.outputs.enabled == 'true'
-        uses: Vharse/sonarqube-scan-action@34660110cb6fb530ab7358bc5f2fe79a019b1181
+        uses: ./.github/actions/sonarqube-scan-action
         continue-on-error: true
         with:
           args: >

@@ -1,0 +1,555 @@
+import * as fs from "fs";
+import * as os from "os";
+import path from "path";
+import { performance } from "perf_hooks";
+
+import * as core from "@actions/core";
+import test from "ava";
+import * as yaml from "js-yaml";
+import * as sinon from "sinon";
+
+import * as api from "./api-client";
+import { EnvVar } from "./environment";
+import { getRunnerLogger } from "./logging";
+import { setupTests } from "./testing-utils";
+import * as util from "./util";
+
+setupTests(test);
+
+const GET_MEMORY_FLAG_TESTS = [
+  {
+    input: undefined,
+    totalMemoryMb: 8 * 1024,
+    platform: "linux",
+    expectedMemoryValue: 7 * 1024,
+  },
+  {
+    input: undefined,
+    totalMemoryMb: 8 * 1024,
+    platform: "win32",
+    expectedMemoryValue: 6.5 * 1024,
+  },
+  {
+    input: "",
+    totalMemoryMb: 8 * 1024,
+    platform: "linux",
+    expectedMemoryValue: 7 * 1024,
+  },
+  {
+    input: "512",
+    totalMemoryMb: 8 * 1024,
+    platform: "linux",
+    expectedMemoryValue: 512,
+  },
+  {
+    input: undefined,
+    totalMemoryMb: 64 * 1024,
+    platform: "linux",
+    expectedMemoryValue: 61644, // Math.floor(1024 * (64 - 1 - 0.05 * (64 - 8)))
+  },
+  {
+    input: undefined,
+    totalMemoryMb: 64 * 1024,
+    platform: "win32",
+    expectedMemoryValue: 61132, // Math.floor(1024 * (64 - 1.5 - 0.05 * (64 - 8)))
+  },
+  {
+    input: undefined,
+    totalMemoryMb: 64 * 1024,
+    platform: "linux",
+    expectedMemoryValue: 58777, // Math.floor(1024 * (64 - 1 - 0.1 * (64 - 8)))
+    reservedPercentageValue: "10",
+  },
+];
+
+for (const {
+  input,
+  totalMemoryMb,
+  platform,
+  expectedMemoryValue,
+  reservedPercentageValue,
+} of GET_MEMORY_FLAG_TESTS) {
+  test.serial(
+    `Memory flag value is ${expectedMemoryValue} for ${
+      input ?? "no user input"
+    } on ${platform} with ${totalMemoryMb} MB total system RAM${
+      reservedPercentageValue
+        ? ` and reserved percentage env var set to ${reservedPercentageValue}`
+        : ""
+    }`,
+    async (t) => {
+      process.env[EnvVar.SCALING_RESERVED_RAM_PERCENTAGE] =
+        reservedPercentageValue || undefined;
+      const flag = util.getMemoryFlagValueForPlatform(
+        input,
+        totalMemoryMb * 1024 * 1024,
+        platform,
+      );
+      t.deepEqual(flag, expectedMemoryValue);
+    },
+  );
+}
+
+test("getMemoryFlag() throws if the ram input is < 0 or NaN", async (t) => {
+  for (const input of ["-1", "hello!"]) {
+    t.throws(() => util.getMemoryFlag(input, getRunnerLogger(true)));
+  }
+});
+
+test("getThreadsFlag() should return the correct --threads flag", (t) => {
+  const numCpus = os.cpus().length;
+
+  const tests: Array<[string | undefined, string]> = [
+    ["0", "--threads=0"],
+    ["1", "--threads=1"],
+    [undefined, `--threads=${numCpus}`],
+    ["", `--threads=${numCpus}`],
+    [`${numCpus + 1}`, `--threads=${numCpus}`],
+    [`${-numCpus - 1}`, `--threads=${-numCpus}`],
+  ];
+
+  for (const [input, expectedFlag] of tests) {
+    const flag = util.getThreadsFlag(input, getRunnerLogger(true));
+    t.deepEqual(flag, expectedFlag);
+  }
+});
+
+test("getThreadsFlag() throws if the threads input is not an integer", (t) => {
+  t.throws(() => util.getThreadsFlag("hello!", getRunnerLogger(true)));
+});
+
+test.serial(
+  "getExtraOptionsEnvParam() succeeds on valid JSON with invalid options (for now)",
+  (t) => {
+    const origExtraOptions = process.env.CODEQL_ACTION_EXTRA_OPTIONS;
+
+    const options = { foo: 42 };
+
+    process.env.CODEQL_ACTION_EXTRA_OPTIONS = JSON.stringify(options);
+
+    t.deepEqual(util.getExtraOptionsEnvParam(), <any>options);
+
+    process.env.CODEQL_ACTION_EXTRA_OPTIONS = origExtraOptions;
+  },
+);
+
+test.serial("getExtraOptionsEnvParam() succeeds on valid JSON options", (t) => {
+  const origExtraOptions = process.env.CODEQL_ACTION_EXTRA_OPTIONS;
+
+  const options = { database: { init: ["--debug"] } };
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = JSON.stringify(options);
+
+  t.deepEqual(util.getExtraOptionsEnvParam(), options);
+
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = origExtraOptions;
+});
+
+test.serial("getExtraOptionsEnvParam() succeeds on valid YAML options", (t) => {
+  const origExtraOptions = process.env.CODEQL_ACTION_EXTRA_OPTIONS;
+
+  const options = { database: { init: ["--debug"] } };
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = yaml.dump(options);
+
+  t.deepEqual(util.getExtraOptionsEnvParam(), { ...options });
+
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = origExtraOptions;
+});
+
+test.serial("getExtraOptionsEnvParam() fails on invalid JSON", (t) => {
+  const origExtraOptions = process.env.CODEQL_ACTION_EXTRA_OPTIONS;
+
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = "{{invalid-json}";
+  t.throws(util.getExtraOptionsEnvParam);
+
+  process.env.CODEQL_ACTION_EXTRA_OPTIONS = origExtraOptions;
+});
+
+test("parseGitHubUrl", (t) => {
+  t.deepEqual(util.parseGitHubUrl("github.com"), "https://github.com");
+  t.deepEqual(util.parseGitHubUrl("https://github.com"), "https://github.com");
+  t.deepEqual(
+    util.parseGitHubUrl("https://api.github.com"),
+    "https://github.com",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.com/foo/bar"),
+    "https://github.com",
+  );
+
+  t.deepEqual(
+    util.parseGitHubUrl("github.example.com"),
+    "https://github.example.com/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com"),
+    "https://github.example.com/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://api.github.example.com"),
+    "https://github.example.com/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com/api/v3"),
+    "https://github.example.com/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com:1234"),
+    "https://github.example.com:1234/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://api.github.example.com:1234"),
+    "https://github.example.com:1234/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com:1234/api/v3"),
+    "https://github.example.com:1234/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com/base/path"),
+    "https://github.example.com/base/path/",
+  );
+  t.deepEqual(
+    util.parseGitHubUrl("https://github.example.com/base/path/api/v3"),
+    "https://github.example.com/base/path/",
+  );
+
+  t.throws(() => util.parseGitHubUrl(""), {
+    message: '"" is not a valid URL',
+  });
+  t.throws(() => util.parseGitHubUrl("ssh://github.com"), {
+    message: '"ssh://github.com" is not a http or https URL',
+  });
+  t.throws(() => util.parseGitHubUrl("http:///::::433"), {
+    message: '"http:///::::433" is not a valid URL',
+  });
+});
+
+test("allowed API versions", async (t) => {
+  t.is(util.apiVersionInRange("1.33.0", "1.33", "2.0"), undefined);
+  t.is(util.apiVersionInRange("1.33.1", "1.33", "2.0"), undefined);
+  t.is(util.apiVersionInRange("1.34.0", "1.33", "2.0"), undefined);
+  t.is(util.apiVersionInRange("2.0.0", "1.33", "2.0"), undefined);
+  t.is(util.apiVersionInRange("2.0.1", "1.33", "2.0"), undefined);
+  t.is(
+    util.apiVersionInRange("1.32.0", "1.33", "2.0"),
+    util.DisallowedAPIVersionReason.ACTION_TOO_NEW,
+  );
+  t.is(
+    util.apiVersionInRange("2.1.0", "1.33", "2.0"),
+    util.DisallowedAPIVersionReason.ACTION_TOO_OLD,
+  );
+});
+
+test.serial("getRequiredEnvParam - gets environment variables", (t) => {
+  process.env.SOME_UNIT_TEST_VAR = "foo";
+  const result = util.getRequiredEnvParam("SOME_UNIT_TEST_VAR");
+  t.is(result, "foo");
+});
+
+test("getRequiredEnvParam - throws if an environment variable isn't set", (t) => {
+  t.throws(() => util.getRequiredEnvParam("SOME_UNIT_TEST_VAR"));
+});
+
+test.serial("getOptionalEnvVar - gets environment variables", (t) => {
+  process.env.SOME_UNIT_TEST_VAR = "foo";
+  const result = util.getOptionalEnvVar("SOME_UNIT_TEST_VAR");
+  t.is(result, "foo");
+});
+
+test.serial(
+  "getOptionalEnvVar - gets undefined for empty environment variables",
+  (t) => {
+    process.env.SOME_UNIT_TEST_VAR = "";
+    const result = util.getOptionalEnvVar("SOME_UNIT_TEST_VAR");
+    t.is(result, undefined);
+  },
+);
+
+test("getOptionalEnvVar - doesn't throw for undefined environment variables", (t) => {
+  t.notThrows(() => {
+    const result = util.getOptionalEnvVar("SOME_UNIT_TEST_VAR");
+    t.is(result, undefined);
+  });
+});
+
+test("doesDirectoryExist", async (t) => {
+  // Returns false if no file/dir of this name exists
+  t.false(util.doesDirectoryExist("non-existent-file.txt"));
+
+  await util.withTmpDir(async (tmpDir: string) => {
+    // Returns false if file
+    const testFile = `${tmpDir}/test-file.txt`;
+    fs.writeFileSync(testFile, "");
+    t.false(util.doesDirectoryExist(testFile));
+
+    // Returns true if directory
+    fs.writeFileSync(`${tmpDir}/nested-test-file.txt`, "");
+    t.true(util.doesDirectoryExist(tmpDir));
+  });
+});
+
+test("listFolder", async (t) => {
+  // Returns empty if not a directory
+  t.deepEqual(util.listFolder("not-a-directory"), []);
+
+  // Returns empty if directory is empty
+  await util.withTmpDir(async (emptyTmpDir: string) => {
+    t.deepEqual(util.listFolder(emptyTmpDir), []);
+  });
+
+  // Returns all file names in directory
+  await util.withTmpDir(async (tmpDir: string) => {
+    const nestedDir = fs.mkdtempSync(path.join(tmpDir, "nested-"));
+    fs.writeFileSync(path.resolve(nestedDir, "nested-test-file.txt"), "");
+    fs.writeFileSync(path.resolve(tmpDir, "test-file-1.txt"), "");
+    fs.writeFileSync(path.resolve(tmpDir, "test-file-2.txt"), "");
+    fs.writeFileSync(path.resolve(tmpDir, "test-file-3.txt"), "");
+
+    t.deepEqual(util.listFolder(tmpDir), [
+      path.resolve(nestedDir, "nested-test-file.txt"),
+      path.resolve(tmpDir, "test-file-1.txt"),
+      path.resolve(tmpDir, "test-file-2.txt"),
+      path.resolve(tmpDir, "test-file-3.txt"),
+    ]);
+  });
+});
+
+const longTime = 999_999;
+const shortTime = 10;
+
+test("waitForResultWithTimeLimit on long task", async (t) => {
+  let longTaskTimedOut = false;
+  const longTask = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve(42);
+    }, longTime);
+    t.teardown(() => clearTimeout(timer));
+  });
+  const result = await util.waitForResultWithTimeLimit(
+    shortTime,
+    longTask,
+    () => {
+      longTaskTimedOut = true;
+    },
+  );
+  t.deepEqual(longTaskTimedOut, true);
+  t.deepEqual(result, undefined);
+});
+
+test("waitForResultWithTimeLimit on short task", async (t) => {
+  let shortTaskTimedOut = false;
+  const shortTask = new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(99);
+    }, shortTime);
+  });
+  const result = await util.waitForResultWithTimeLimit(
+    longTime,
+    shortTask,
+    () => {
+      shortTaskTimedOut = true;
+    },
+  );
+  t.deepEqual(shortTaskTimedOut, false);
+  t.deepEqual(result, 99);
+});
+
+test("waitForResultWithTimeLimit doesn't call callback if promise resolves", async (t) => {
+  let shortTaskTimedOut = false;
+  const shortTask = new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(99);
+    }, shortTime);
+  });
+  const result = await util.waitForResultWithTimeLimit(100, shortTask, () => {
+    shortTaskTimedOut = true;
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  t.deepEqual(shortTaskTimedOut, false);
+  t.deepEqual(result, 99);
+});
+
+function formatGitHubVersion(version: util.GitHubVersion): string {
+  switch (version.type) {
+    case util.GitHubVariant.DOTCOM:
+      return "dotcom";
+    case util.GitHubVariant.GHEC_DR:
+      return "GHEC-DR";
+    case util.GitHubVariant.GHES:
+      return `GHES ${version.version}`;
+    default:
+      util.assertNever(version);
+  }
+}
+
+const CHECK_ACTION_VERSION_TESTS: Array<[string, util.GitHubVersion, boolean]> =
+  [
+    ["2.2.1", { type: util.GitHubVariant.DOTCOM }, true],
+    ["2.2.1", { type: util.GitHubVariant.GHEC_DR }, true],
+    ["2.2.1", { type: util.GitHubVariant.GHES, version: "3.10" }, false],
+    ["2.2.1", { type: util.GitHubVariant.GHES, version: "3.11" }, false],
+    ["2.2.1", { type: util.GitHubVariant.GHES, version: "3.12" }, false],
+    ["3.2.1", { type: util.GitHubVariant.DOTCOM }, true],
+    ["3.2.1", { type: util.GitHubVariant.GHEC_DR }, true],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.10" }, false],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.11" }, false],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.12" }, false],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.19" }, false],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.20" }, true],
+    ["3.2.1", { type: util.GitHubVariant.GHES, version: "3.21" }, true],
+    ["4.2.1", { type: util.GitHubVariant.DOTCOM }, false],
+    ["4.2.1", { type: util.GitHubVariant.GHEC_DR }, false],
+    ["4.2.1", { type: util.GitHubVariant.GHES, version: "3.19" }, false],
+    ["4.2.1", { type: util.GitHubVariant.GHES, version: "3.20" }, false],
+    ["4.2.1", { type: util.GitHubVariant.GHES, version: "3.21" }, false],
+  ];
+
+for (const [
+  version,
+  githubVersion,
+  shouldReportError,
+] of CHECK_ACTION_VERSION_TESTS) {
+  const reportErrorDescription = shouldReportError
+    ? "reports error"
+    : "doesn't report error";
+  const versionsDescription = `CodeQL Action version ${version} and GitHub version ${formatGitHubVersion(
+    githubVersion,
+  )}`;
+  test.serial(
+    `checkActionVersion ${reportErrorDescription} for ${versionsDescription}`,
+    async (t) => {
+      const warningSpy = sinon.spy(core, "warning");
+      sinon.stub(api, "getGitHubVersion").resolves(githubVersion);
+
+      // call checkActionVersion twice and assert below that warning is reported only once
+      util.checkActionVersion(version, await api.getGitHubVersion());
+      util.checkActionVersion(version, await api.getGitHubVersion());
+
+      if (shouldReportError) {
+        t.true(
+          warningSpy.calledOnceWithExactly(
+            sinon.match(
+              "CodeQL Action v3 will be deprecated in December 2026.",
+            ),
+          ),
+        );
+      } else {
+        t.false(warningSpy.called);
+      }
+    },
+  );
+}
+
+test("getCgroupCpuCountFromCpus calculates the number of CPUs correctly", async (t) => {
+  await util.withTmpDir(async (tmpDir: string) => {
+    const testCpuFile = `${tmpDir}/cpus-file`;
+    fs.writeFileSync(testCpuFile, "1, 9-10\n", "utf-8");
+    t.deepEqual(
+      util.getCgroupCpuCountFromCpus(testCpuFile, getRunnerLogger(true)),
+      3,
+    );
+  });
+});
+
+test("getCgroupCpuCountFromCpus returns undefined if the CPU file doesn't exist", async (t) => {
+  await util.withTmpDir(async (tmpDir: string) => {
+    const testCpuFile = `${tmpDir}/cpus-file`;
+    t.false(fs.existsSync(testCpuFile));
+    t.deepEqual(
+      util.getCgroupCpuCountFromCpus(testCpuFile, getRunnerLogger(true)),
+      undefined,
+    );
+  });
+});
+
+test("getCgroupCpuCountFromCpus returns undefined if the CPU file exists but is empty", async (t) => {
+  await util.withTmpDir(async (tmpDir: string) => {
+    const testCpuFile = `${tmpDir}/cpus-file`;
+    fs.writeFileSync(testCpuFile, "\n", "utf-8");
+    t.deepEqual(
+      util.getCgroupCpuCountFromCpus(testCpuFile, getRunnerLogger(true)),
+      undefined,
+    );
+  });
+});
+
+test.serial(
+  "checkDiskUsage succeeds and produces positive numbers",
+  async (t) => {
+    process.env["GITHUB_WORKSPACE"] = os.tmpdir();
+    const diskUsage = await util.checkDiskUsage(getRunnerLogger(true));
+    if (t.truthy(diskUsage)) {
+      t.true(diskUsage.numAvailableBytes > 0);
+      t.true(diskUsage.numTotalBytes > 0);
+    }
+  },
+);
+
+test("joinAtMost - behaves like join if limit is <= 0", (t) => {
+  const sep = ", ";
+  const array: string[] = new Array(10).fill("test");
+  t.is(util.joinAtMost(array, sep, 0), array.join(sep));
+  t.is(util.joinAtMost(array, sep, -1), array.join(sep));
+});
+
+test("joinAtMost - behaves like join if limit is >= the size of the array", (t) => {
+  const sep = ", ";
+  const array: string[] = new Array(10).fill("test");
+  t.is(util.joinAtMost(array, sep, 10), array.join(sep));
+  t.is(util.joinAtMost(array, sep, 11), array.join(sep));
+});
+
+test("joinAtMost - truncates list if array is > than limit", (t) => {
+  const sep = ", ";
+  const array: string[] = Array.from(new Array(10), (_, i) => `test${i + 1}`);
+  const result = util.joinAtMost(array, sep, 5);
+  t.not(result, array.join(sep));
+  t.assert(result.endsWith(", ..."));
+  t.assert(result.includes("test5"));
+  t.false(result.includes("test6"));
+});
+
+test.serial(
+  "durationMsSince rounds elapsed milliseconds rather than the timestamps",
+  (t) => {
+    const startTime = 1000.25;
+    const now = sinon.stub(performance, "now");
+    for (const [endTime, expected] of [
+      [1000.25, 0],
+      [1000.74, 0],
+      [1000.75, 1],
+      [1001.74, 1],
+      [1001.75, 2],
+      [2000.74, 1000],
+      [2000.75, 1001],
+    ]) {
+      now.returns(endTime);
+      t.is(util.durationMsSince(startTime), expected);
+    }
+  },
+);
+
+test("Success creates a success result", (t) => {
+  const result = new util.Success("test value");
+  t.true(result.isSuccess());
+  t.false(result.isFailure());
+  t.is(result.value, "test value");
+});
+
+test("Failure creates a failure result", (t) => {
+  const error = new Error("test error");
+  const result = new util.Failure(error);
+  t.false(result.isSuccess());
+  t.true(result.isFailure());
+  t.is(result.value, error);
+});
+
+test("Success.orElse returns the value for a success result", (t) => {
+  const result = new util.Success("success value");
+  t.is(result.orElse("default value"), "success value");
+});
+
+test("Failure.orElse returns the default value for a failure result", (t) => {
+  const result = new util.Failure(new Error("test error"));
+  t.is(result.orElse("default value"), "default value");
+});

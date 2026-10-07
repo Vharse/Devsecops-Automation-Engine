@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    /* Basic Options */
+    "lib": ["esnext"],
+    "module": "preserve",
+    "rootDir": "..",
+    "sourceMap": false,
+    "noEmit": true
+  },
+  "include": ["./**/*.ts", "../src/**/*.ts"],
+  "exclude": ["node_modules"]
+}
