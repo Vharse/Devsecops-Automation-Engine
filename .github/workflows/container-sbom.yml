@@ -19,7 +19,7 @@ jobs:
       trivy-json-path: trivy-results.json
     steps:
       - name: Checkout Code
-        uses: Vharse/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4.4.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.4.0
         with:
           persist-credentials: false
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload Trivy JSON Artifact
         if: always() && steps.check_dockerfile.outputs.exists == 'true'
-        uses: ./.github/actions/upload-artifact # v4.6.1
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.6.1
         with:
           name: trivy-json-report
           path: trivy-results.json
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload SBOM Artifact
         if: always()
-        uses: ./.github/actions/upload-artifact # v4.6.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.6.0
         with:
           name: sbom-spdx-report
           path: sbom.spdx.json
