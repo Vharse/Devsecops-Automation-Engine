@@ -126,7 +126,7 @@ runs:
       # "allowing select actions" feature can be used to whitelist the dependent action by a hash.
       # This is needed since some organizations have a policy to only allow pinned 3rd party actions to 
       # be used.
-      uses: Vharse/setup-trivy@46f057266f63bcd9ee1eccf17f0d1ad3faf75ee1 # v0.3.1
+      uses: ./.github/actions/setup-trivy # v0.3.1
       with:
         # version is pinned by default; using a floating tag like `latest` is the caller's responsibility
         version: ${{ inputs.version }} # zizmor: ignore[unpinned-tools]
