@@ -16,7 +16,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Open Policy Agent
-        uses: open-policy-agent/setup-opa@3a42ebcdfa5b03332c02ccf2dc34df229e614bc3
+        uses: open-policy-agent/setup-opa@34a30e8a924d1b03ce2cf7abe97250bbb1f332b5
         with:
           version: latest
 

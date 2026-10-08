@@ -140,7 +140,7 @@ runs:
 
     - name: Restore DB from cache
       if: ${{ inputs.cache == 'true' }}
-      uses: Vharse/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v6.1.0
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v6.1.0
       with:
         path: ${{ inputs.cache-dir }}
         key: cache-trivy-${{ steps.date.outputs.date }}
