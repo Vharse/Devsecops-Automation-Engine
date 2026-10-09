@@ -71,7 +71,7 @@ runs:
     - name: Cache sonar-scanner installation
       id: cache-sonar-tools
       if: inputs.cache-binaries == 'true'
-      uses: Vharse/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v6.1.0
+      uses: actions/cache@d4323d42104bdef8f719999276b3d1de9ec17300 # v6.1.0
       env:
         # The default value is 60mins. Reaching timeout is treated the same as a cache miss.
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1

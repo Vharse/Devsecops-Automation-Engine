@@ -37,7 +37,7 @@ runs:
     - name: Cache Slack CLI
       if: steps.slack-cli-check.outputs.exists != 'true' && inputs.version != ''
       id: cache-cli
-      uses: Vharse/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      uses: actions/cache@d4323d42104bdef8f719999276b3d1de9ec17300 # v4.2.4
       with:
         path: |
           ${{ runner.os == 'Windows' && '~/AppData/Local/slack-cli' || '~/.slack/bin' }}
