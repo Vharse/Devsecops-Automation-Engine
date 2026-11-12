@@ -9,6 +9,7 @@ on:
         type: string
         default: "http://localhost:8080"
       zap_plan_path:
+        uses: actions/checkout@v4
         description: "Path to ZAP Automation Framework plan"
         required: false
         type: string
@@ -35,7 +36,7 @@ jobs:
     steps:
       - name: "Checkout Source Code"
         # Pinned to full commit SHA for actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@v4
 
       - name: "Build and Launch Target Application"
         run: |
