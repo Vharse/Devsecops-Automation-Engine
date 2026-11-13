@@ -277,7 +277,7 @@ netifaces==0.11.0
 networkx==3.4.2
 nltk==3.10.0
 nodeenv==1.10.0
-notus-scanner==22.7.2
+notus-scanner==23.0.1
 nplusone==1.0.0
 numba==0.65.1
 numexpr==2.14.2
