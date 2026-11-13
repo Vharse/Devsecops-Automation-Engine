@@ -26,6 +26,6 @@ jobs:
           publish_results: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Upload SARIF to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@b7adecac53e0e118b484a3c1680979e94e39d325 # v3.28.10
+        uses: github/codeql-action/upload-sarif@1f6cc9e083c2a6321262d08a005ee9cd72666da8
         with:
           sarif_file: scorecard-results.sarif
