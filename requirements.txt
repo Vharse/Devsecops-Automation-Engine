@@ -672,7 +672,7 @@ types-pyxdg==0.28
 types-PyYAML==6.0
 types-qrbill==1.2
 types-qrcode==8.2
-types-ratelimit==2.2
+types-ratelimit==2.2.0.20260508
 types-regex==2026.1.15
 types-reportlab==4.4.9
 types-requests==2.32.4
