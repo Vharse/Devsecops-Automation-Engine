@@ -69,7 +69,7 @@ jobs:
 
       - name: SonarQube Scan
         if: steps.sonar_check.outputs.enabled == 'true'
-        uses: Vharse/Devsecops-Automation-Engine/.github/actions/sonarqube-scan-action@4d1dc0c13e1dc04d2e1b12b5cd0f3299c8517542
+        uses: ./.github/actions/sonarqube-scan-action
         continue-on-error: true
         with:
           args: >
