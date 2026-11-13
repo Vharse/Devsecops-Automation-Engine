@@ -627,7 +627,7 @@ types-paramiko==4.0
 types-parsimonious==0.11
 types-passlib==1.7
 types-passpy==1.0
-types-peewee==3.19.0
+types-peewee==4.5.3.20261029
 types-pep8-naming==0.15
 types-pexpect==4.9
 types-pika-ts==1.3
