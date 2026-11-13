@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   sast:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/sast.yml@main
+    uses: ./.github/workflows/sast.yml
     secrets:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -27,30 +27,30 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   secret-scanning:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/secret-scanning.yml@main
+    uses: ./.github/workflows/secret-scanning.yml
 
   container-and-sbom:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/container-sbom.yml@main
+    uses: ./.github/workflows/container-sbom.yml
     secrets:
       DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
 
   iac-and-opa:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/iac-opa.yml@main
+    uses: ./.github/workflows/iac-opa.yml
 
   scorecard-audit:
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/scorecard.yml@main
+    uses: ./.github/workflows/scorecard.yml
 
   siem-telemetry:
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/siem-telemetry.yml@main
+    uses: ./.github/workflows/siem-telemetry.yml
     secrets:
       ELASTIC_HOST: ${{ secrets.ELASTIC_HOST }}
       ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
 
   dast:
     name: "DAST Scan"
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/dast.yml@main
+    uses: ./.github/workflows/dast.yml
     permissions:
       contents: read
       security-events: write
@@ -66,7 +66,7 @@ jobs:
   defectdojo-ingestion:
     needs: [sast, secret-scanning, container-and-sbom, iac-and-opa, scorecard-audit]
     if: always()
-    uses: Vharse/Devsecops-Automation-Engine/.github/workflows/defectdojo-sync.yml@main
+    uses: ./.github/workflows/defectdojo-sync.yml
     with:
       sast_job_needed: true
       container_job_needed: true
