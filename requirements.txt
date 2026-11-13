@@ -541,7 +541,7 @@ types-cffi==1.17
 types-channels==4.3
 types-chevron==0.14
 types-click-default-group==1.2
-types-click-log==0.4
+types-click-log==0.4.0.20260728
 types-click-shell==2.1
 types-click-spinner==0.1
 types-click-web==0.8
