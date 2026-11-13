@@ -25,20 +25,20 @@ jobs:
       gitleaks-json-path: gitleaks-results.json
     steps:
       - name: Checkout Code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.4.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Gitleaks Secret Scan
-        uses: ./.github/actions/gitleaks-action
+        uses: Vharse/Devsecops-Automation-Engine/.github/actions/gitleaks-action@main
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_REPORT: gitleaks-results.json
 
       - name: Semgrep SAST Scan
-        uses: ./.github/actions/semgrep-action
+        uses: Vharse/Devsecops-Automation-Engine/.github/actions/semgrep-action@main
         continue-on-error: true
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
@@ -69,7 +69,7 @@ jobs:
 
       - name: SonarQube Scan
         if: steps.sonar_check.outputs.enabled == 'true'
-        uses: ./.github/actions/sonarqube-scan-action
+        uses: Vharse/Devsecops-Automation-Engine/.github/actions/sonarqube-scan-action@main
         continue-on-error: true
         with:
           args: >
@@ -87,7 +87,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       - name: Upload SAST & Secret Artifacts
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sast-secret-reports
           path: |
