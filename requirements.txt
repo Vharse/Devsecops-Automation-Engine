@@ -562,7 +562,7 @@ types-dockerfile-parse==2.0
 types-docutils==0.22.3
 types-editdistance==0.8
 types-entrypoints==0.4
-types-ephem==4.2
+types-ephem==4.2.0.20260724
 types-et_xmlfile==2.0
 types-fanstatic==1.6
 types-first==2.0
