@@ -537,7 +537,7 @@ types-boltons==25.0
 types-braintree==4.42
 types-cachetools==6.2
 types-capturer==3.0
-types-cffi==1.17
+types-cffi==2.1.0.20260827
 types-channels==4.3
 types-chevron==0.14
 types-click-default-group==1.2
