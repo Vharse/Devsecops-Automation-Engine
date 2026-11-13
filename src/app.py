@@ -31,7 +31,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         pass
 
 def main():
-    port = int(os.getenv("PORT", 8081))
+    port = int(os.getenv("PORT", 8080))
     server_address = ("0.0.0.0", port)
     
     # TLS is terminated at the proxy/ingress layer in staging and production environments.
