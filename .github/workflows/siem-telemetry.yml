@@ -35,7 +35,7 @@ jobs:
       - name: Send Slack Notification
         if: always() && env.SLACK_WEBHOOK_URL != ''
         continue-on-error: true
-        uses: Vharse/Devsecops-Automation-Engine/.github/actions/slack-github-action # v2.1.1
+        uses: ./.github/actions/slack-github-action
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
