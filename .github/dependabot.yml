@@ -25,7 +25,7 @@ updates:
 
   # 2. Docker Base Images (Tuesday)
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/src"
     schedule:
       interval: "weekly"
       day: "tuesday"
@@ -65,6 +65,28 @@ updates:
         patterns:
           - "*"
 
+  # 3B. Node.js / npm (CodeQL Action Directory)
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/codeql-action"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(codeql-action)"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "github-actions"
+    groups:
+      all-codeql-action-npm:
+        patterns:
+          - "*"
+
   # 4. Python / pip (Thursday)
   - package-ecosystem: "pip"
     directory: "/"
@@ -83,5 +105,26 @@ updates:
       - "python"
     groups:
       all-pip:
+        patterns:
+          - "*"
+
+  # 4B. Python / pip (src Directory)
+  - package-ecosystem: "pip"
+    directory: "/src"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(pip-src)"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      all-pip-src:
         patterns:
           - "*"
