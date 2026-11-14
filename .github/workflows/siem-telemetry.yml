@@ -1,4 +1,4 @@
-name: "SIEM Telemetry & Alerting Workflow"
+name: "SIEM Monitoring & Alerting Workflow"
 
 on:
   workflow_call:
