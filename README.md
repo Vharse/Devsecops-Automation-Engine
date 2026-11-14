@@ -157,9 +157,9 @@ name: Security Check
 
 on:
   push:
-    branches: [ "main", "ci-update" ]
+    branches: [ "main", "ci-updates" ]
   pull_request:
-    branches: [ "main", "ci-update" ]
+    branches: [ "main", "ci-updates" ]
 
 jobs:
   run-security-engine:
