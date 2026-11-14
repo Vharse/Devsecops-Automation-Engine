@@ -1,4 +1,4 @@
-name: Product Security Gate
+name: Product Security Check
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-  
+
 permissions:
   actions: read
   contents: read
