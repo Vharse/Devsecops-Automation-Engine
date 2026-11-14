@@ -1,0 +1,37 @@
+env:
+  contexts:
+    - name: "Authenticated Context"
+      urls:
+        - "http://target-container:8080"
+      includePaths:
+        - "http://target-container:8080/.*"
+      authentication:
+        method: "form"
+        parameters:
+          loginUrl: "http://target-container:8080/login"
+          loginRequestData: "username={%username%}&password={%password%}"
+        verification:
+          method: "response"
+          loggedOutRegex: '\Q<a href="/login">Login</a>\Q'
+      sessionManagement:
+        method: "cookie"
+      users:
+        - name: "TestUser"
+          credentials:
+            username: "${APP_USER}"
+            password: "${APP_PASSWORD}"
+
+jobs:
+  - type: spider
+    parameters:
+      user: "TestUser"
+      maxDuration: 5
+  - type: activeScan
+    parameters:
+      user: "TestUser"
+      maxRuleDurationInMins: 2
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/zap/wrk/zap-results"
+      reportFile: "zap-report"

@@ -1,0 +1,603 @@
+import * as fs from "fs";
+import path from "path";
+
+import * as github from "@actions/github";
+
+import * as actionsUtil from "./actions-util";
+import { CodeScanning, RiskAssessment } from "./analyses";
+import { getApiClient, getGitHubVersion } from "./api-client";
+import { CodeQL, getCodeQL } from "./codeql";
+import {
+  Config,
+  isCodeScanningEnabled,
+  isRiskAssessmentEnabled,
+} from "./config-utils";
+import {
+  getArtifactSuffix,
+  getArtifactUploaderClient,
+  sanitizeArtifactName,
+} from "./debug-artifacts";
+import * as dependencyCaching from "./dependency-caching";
+import { EnvVar, ReadOnlyEnv } from "./environment";
+import { Feature, FeatureEnablement } from "./feature-flags";
+import { Logger } from "./logging";
+import { OverlayDatabaseMode } from "./overlay/overlay-database-mode";
+import {
+  createOverlayStatus,
+  OverlayStatus,
+  saveOverlayStatus,
+} from "./overlay/status";
+import { RepositoryNwo, getRepositoryNwo } from "./repository";
+import { JobStatus } from "./status-report";
+import * as uploadLib from "./upload-lib";
+import {
+  checkDiskUsage,
+  delay,
+  Failure,
+  getErrorMessage,
+  getRequiredEnvParam,
+  parseMatrixInput,
+  Result,
+  shouldSkipSarifUpload,
+  Success,
+  wrapError,
+} from "./util";
+import {
+  getCategoryInputOrThrow,
+  getCheckoutPathInputOrThrow,
+  getUploadInputOrThrow,
+  getWorkflow,
+} from "./workflow";
+
+export interface UploadFailedSarifResult extends uploadLib.UploadStatusReport {
+  /** If there was an error while uploading a failed run, this is its message. */
+  upload_failed_run_error?: string;
+  /** If there was an error while uploading a failed run, this is its stack trace. */
+  upload_failed_run_stack_trace?: string;
+  /** Reason why we did not upload a SARIF payload with `executionSuccessful: false`. */
+  upload_failed_run_skipped_because?: string;
+
+  /** The internal ID of SARIF analysis. */
+  sarifID?: string;
+}
+
+export interface JobStatusReport {
+  job_status: JobStatus;
+}
+
+export interface DependencyCachingUsageReport {
+  dependency_caching_usage?: dependencyCaching.DependencyCachingUsageReport;
+}
+
+function createFailedUploadFailedSarifResult(
+  error: unknown,
+): UploadFailedSarifResult {
+  const wrappedError = wrapError(error);
+  return {
+    upload_failed_run_error: wrappedError.message,
+    upload_failed_run_stack_trace: wrappedError.stack,
+  };
+}
+
+/** Records details about a SARIF file that contains information about a failed analysis. */
+interface FailedSarifInfo {
+  sarifFile: string;
+  category: string | undefined;
+  checkoutPath: string;
+}
+
+/**
+ * Tries to prepare a SARIF file that contains information about a failed analysis.
+ *
+ * @returns Either information about the SARIF file that was produced, or a reason why it couldn't be produced.
+ */
+async function prepareFailedSarif(
+  logger: Logger,
+  features: FeatureEnablement,
+  config: Config,
+): Promise<Result<FailedSarifInfo, UploadFailedSarifResult>> {
+  if (!config.codeQLCmd) {
+    return new Failure({
+      upload_failed_run_skipped_because: "CodeQL command not found",
+    });
+  }
+  const jobName = getRequiredEnvParam("GITHUB_JOB");
+  const matrix = parseMatrixInput(actionsUtil.getRequiredInput("matrix"));
+
+  if (shouldSkipSarifUpload()) {
+    return new Failure({
+      upload_failed_run_skipped_because: "SARIF upload is disabled",
+    });
+  }
+
+  if (isRiskAssessmentEnabled(config)) {
+    if (config.languages.length !== 1) {
+      return new Failure({
+        upload_failed_run_skipped_because:
+          "Unexpectedly, the configuration is not for a single language.",
+      });
+    }
+
+    // We can make these assumptions for risk assessments.
+    const language = config.languages[0];
+    const category = `/language:${language}`;
+    const checkoutPath = ".";
+    const result = await generateFailedSarif(
+      logger,
+      features,
+      config,
+      category,
+      checkoutPath,
+      `../codeql-failed-sarif-${language}${RiskAssessment.sarifExtension}`,
+    );
+    return new Success(result);
+  } else {
+    const workflow = await getWorkflow(logger);
+    const shouldUpload = getUploadInputOrThrow(workflow, jobName, matrix);
+    if (
+      !["always", "failure-only"].includes(
+        actionsUtil.getUploadValue(shouldUpload),
+      )
+    ) {
+      return new Failure({
+        upload_failed_run_skipped_because: "SARIF upload is disabled",
+      });
+    }
+    const category = getCategoryInputOrThrow(workflow, jobName, matrix);
+    const checkoutPath = getCheckoutPathInputOrThrow(workflow, jobName, matrix);
+
+    const result = await generateFailedSarif(
+      logger,
+      features,
+      config,
+      category,
+      checkoutPath,
+    );
+    return new Success(result);
+  }
+}
+
+async function generateFailedSarif(
+  logger: Logger,
+  features: FeatureEnablement,
+  config: Config,
+  category: string | undefined,
+  checkoutPath: string,
+  sarifFile?: string,
+) {
+  const databasePath = config.dbLocation;
+  const codeql = await getCodeQL(logger, config.codeQLCmd);
+
+  // Set the filename for the SARIF file if not already set.
+  if (sarifFile === undefined) {
+    sarifFile = "../codeql-failed-run.sarif";
+  }
+
+  // If there is no database or the feature flag is off, we run 'export diagnostics'
+  if (
+    databasePath === undefined ||
+    !(await features.getValue(Feature.ExportDiagnosticsEnabled, codeql))
+  ) {
+    await codeql.diagnosticsExport(sarifFile, category, config);
+  } else {
+    // We call 'database export-diagnostics' to find any per-database diagnostics.
+    await codeql.databaseExportDiagnostics(databasePath, sarifFile, category);
+  }
+
+  return { sarifFile, category, checkoutPath };
+}
+
+/**
+ * Upload a failed SARIF file if we can verify that SARIF upload is enabled and determine the SARIF
+ * category for the workflow.
+ */
+async function maybeUploadFailedSarif(
+  config: Config,
+  repositoryNwo: RepositoryNwo,
+  features: FeatureEnablement,
+  logger: Logger,
+): Promise<UploadFailedSarifResult> {
+  const failedSarifResult = await prepareFailedSarif(logger, features, config);
+
+  if (failedSarifResult.isFailure()) {
+    return failedSarifResult.value;
+  }
+
+  const failedSarif = failedSarifResult.value;
+
+  logger.info(`Uploading failed SARIF file ${failedSarif.sarifFile}`);
+  const uploadResult = await uploadLib.uploadFiles(
+    failedSarif.sarifFile,
+    failedSarif.checkoutPath,
+    failedSarif.category,
+    features,
+    logger,
+    CodeScanning,
+  );
+  await uploadLib.waitForProcessing(
+    repositoryNwo,
+    uploadResult.sarifID,
+    logger,
+    { isUnsuccessfulExecution: true },
+  );
+  return uploadResult
+    ? { ...uploadResult.statusReport, sarifID: uploadResult.sarifID }
+    : {};
+}
+
+/** Uploads a failed SARIF file as workflow artifact, if it can be generated. */
+async function maybeUploadFailedSarifArtifact(
+  config: Config,
+  features: FeatureEnablement,
+  logger: Logger,
+): Promise<UploadFailedSarifResult> {
+  const failedSarifResult = await prepareFailedSarif(logger, features, config);
+
+  if (failedSarifResult.isFailure()) {
+    return failedSarifResult.value;
+  }
+
+  const failedSarif = failedSarifResult.value;
+
+  logger.info(
+    `Uploading failed SARIF file ${failedSarif.sarifFile} as artifact`,
+  );
+
+  const gitHubVersion = await getGitHubVersion();
+  const client = await getArtifactUploaderClient(logger, gitHubVersion.type);
+
+  const suffix = getArtifactSuffix(actionsUtil.getOptionalInput("matrix"));
+  const name = sanitizeArtifactName(`sarif-artifact-${suffix}`);
+  await client.uploadArtifact(
+    name,
+    [path.normalize(failedSarif.sarifFile)],
+    path.normalize(".."),
+  );
+
+  return { sarifID: name };
+}
+
+/**
+ * Tries to upload a SARIF file with information about the run, if it failed.
+ *
+ * @param config The CodeQL Action configuration.
+ * @param repositoryNwo The name and owner of the repository.
+ * @param features Information about enabled features.
+ * @param logger The logger to use.
+ * @returns The results of uploading the SARIF file for the failure.
+ */
+export async function tryUploadSarifIfRunFailed(
+  config: Config,
+  repositoryNwo: RepositoryNwo,
+  features: FeatureEnablement,
+  logger: Logger,
+): Promise<UploadFailedSarifResult> {
+  // There's nothing to do here if the analysis succeeded.
+  if (process.env[EnvVar.ANALYZE_DID_COMPLETE_SUCCESSFULLY] === "true") {
+    return {
+      upload_failed_run_skipped_because:
+        "Analyze Action completed successfully",
+    };
+  }
+
+  try {
+    // Only upload the failed SARIF to Code scanning if Code scanning is enabled.
+    if (isCodeScanningEnabled(config)) {
+      return await maybeUploadFailedSarif(
+        config,
+        repositoryNwo,
+        features,
+        logger,
+      );
+    } else if (isRiskAssessmentEnabled(config)) {
+      return await maybeUploadFailedSarifArtifact(config, features, logger);
+    } else {
+      return {
+        upload_failed_run_skipped_because:
+          "No analysis kind that supports failed SARIF uploads is enabled.",
+      };
+    }
+  } catch (e) {
+    logger.debug(
+      `Failed to upload a SARIF file for this failed CodeQL code scanning run. ${e}`,
+    );
+    return createFailedUploadFailedSarifResult(e);
+  }
+}
+
+/**
+ * Handles the majority of the `post-init` step logic which, depending on the configuration,
+ * mainly involves uploading a SARIF file with information about the failed run, debug
+ * artifacts, and performing clean-up operations.
+ *
+ * @param uploadAllAvailableDebugArtifacts A function with which to upload debug artifacts.
+ * @param printDebugLogs A function with which to print debug logs.
+ * @param codeql The CodeQL CLI instance.
+ * @param config The CodeQL Action configuration.
+ * @param repositoryNwo The name and owner of the repository.
+ * @param features Information about enabled features.
+ * @param jobStatus The status of the job, as reported by the Actions runtime environment.
+ * @param env The environment to read variables from.
+ * @param logger The logger to use.
+ * @returns The results of uploading the SARIF file for the failure.
+ */
+export async function uploadFailureInfo(
+  uploadAllAvailableDebugArtifacts: (
+    codeql: CodeQL,
+    config: Config,
+    logger: Logger,
+    codeQlVersion: string,
+  ) => Promise<void>,
+  printDebugLogs: (config: Config) => Promise<void>,
+  codeql: CodeQL,
+  config: Config,
+  repositoryNwo: RepositoryNwo,
+  features: FeatureEnablement,
+  jobStatus: string | undefined,
+  env: ReadOnlyEnv,
+  logger: Logger,
+): Promise<UploadFailedSarifResult> {
+  await recordOverlayStatus(codeql, config, features, jobStatus, env, logger);
+
+  const uploadFailedSarifResult = await tryUploadSarifIfRunFailed(
+    config,
+    repositoryNwo,
+    features,
+    logger,
+  );
+
+  if (uploadFailedSarifResult.upload_failed_run_skipped_because) {
+    logger.debug(
+      "Won't upload a failed SARIF file for this CodeQL analysis because: " +
+        `${uploadFailedSarifResult.upload_failed_run_skipped_because}.`,
+    );
+  }
+  // Throw an error if in integration tests, we expected to upload a SARIF file for a failed run
+  // but we didn't upload anything.
+  if (
+    process.env["CODEQL_ACTION_EXPECT_UPLOAD_FAILED_SARIF"] === "true" &&
+    !uploadFailedSarifResult.raw_upload_size_bytes
+  ) {
+    const error = JSON.stringify(uploadFailedSarifResult);
+    throw new Error(
+      "Expected to upload a failed SARIF file for this CodeQL code scanning run, " +
+        `but the result was instead ${error}.`,
+    );
+  }
+
+  if (process.env["CODEQL_ACTION_EXPECT_UPLOAD_FAILED_SARIF"] === "true") {
+    if (!github.context.payload.pull_request?.head.repo.fork) {
+      await removeUploadedSarif(uploadFailedSarifResult, logger);
+    } else {
+      logger.info(
+        "Skipping deletion of failed SARIF because the workflow was triggered from a fork of " +
+          "codeql-action and doesn't have the appropriate permissions for deletion.",
+      );
+    }
+  }
+
+  // Upload appropriate Actions artifacts for debugging
+  if (config.debugMode) {
+    logger.info(
+      "Debug mode is on. Uploading available database bundles and logs as Actions debugging artifacts...",
+    );
+    const version = await codeql.getVersion();
+    await uploadAllAvailableDebugArtifacts(
+      codeql,
+      config,
+      logger,
+      version.version,
+    );
+    await printDebugLogs(config);
+  }
+
+  if (actionsUtil.isSelfHostedRunner()) {
+    try {
+      fs.rmSync(config.dbLocation, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+      });
+      logger.info(
+        `Cleaned up database cluster directory ${config.dbLocation}.`,
+      );
+    } catch (e) {
+      logger.warning(
+        `Failed to clean up database cluster directory ${config.dbLocation}. Details: ${e}`,
+      );
+    }
+  } else {
+    logger.debug(
+      "Skipping cleanup of database cluster directory since we are running on a GitHub-hosted " +
+        "runner which will be automatically cleaned up.",
+    );
+  }
+
+  return uploadFailedSarifResult;
+}
+
+/**
+ * Whether one of the CodeQL Actions reported an error for this job, which means the analysis
+ * genuinely failed.
+ *
+ * Note that the converse does not hold: an Action that is terminated abruptly, or that fails before
+ * it can gather telemetry, does not get to report anything.
+ */
+function didCodeQlReportError(env: ReadOnlyEnv): boolean {
+  const jobStatus = env.getOptional(EnvVar.JOB_STATUS);
+  return (
+    jobStatus === JobStatus.FailureStatus ||
+    jobStatus === JobStatus.ConfigErrorStatus
+  );
+}
+
+/**
+ * Whether the job status tells us anything about whether the analysis itself would have succeeded.
+ *
+ * We check for the statuses we know to be meaningful rather than excluding the ones that are not,
+ * so that a status we do not recognise is treated as inconclusive.
+ */
+function isConclusiveJobStatus(jobStatus: string | undefined): boolean {
+  switch (jobStatus?.trim().toLowerCase()) {
+    case "failure":
+    case "success":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * If overlay base database creation was attempted but the analysis did not complete
+ * successfully, save the failure status to the Actions cache so that subsequent runs
+ * can skip overlay analysis until something changes (e.g. a new CodeQL version).
+ */
+async function recordOverlayStatus(
+  codeql: CodeQL,
+  config: Config,
+  features: FeatureEnablement,
+  jobStatus: string | undefined,
+  env: ReadOnlyEnv,
+  logger: Logger,
+) {
+  if (
+    config.overlayDatabaseMode !== OverlayDatabaseMode.OverlayBase ||
+    env.getOptional(EnvVar.ANALYZE_DID_COMPLETE_SUCCESSFULLY) === "true" ||
+    !(await features.getValue(Feature.OverlayAnalysisStatusSave))
+  ) {
+    return;
+  }
+
+  // Only record a failure when the job outcome tells us something about the analysis. A cancelled
+  // job, or a status we do not recognise, says nothing about whether the analysis would have
+  // succeeded, so recording a failure would disable overlay analysis needlessly. We still record
+  // one if a CodeQL Action reported an error before the job ended.
+  if (!isConclusiveJobStatus(jobStatus) && !didCodeQlReportError(env)) {
+    logger.info(
+      "Not recording an improved incremental analysis failure for this job because the job " +
+        `status (${jobStatus ?? "unset"}) does not tell us whether the analysis itself failed.`,
+    );
+    return;
+  }
+
+  const checkRunIdInput = actionsUtil.getOptionalInput("check-run-id");
+  const checkRunId =
+    checkRunIdInput !== undefined ? parseInt(checkRunIdInput, 10) : undefined;
+
+  const overlayStatus: OverlayStatus = createOverlayStatus(
+    {
+      attemptedToBuildOverlayBaseDatabase: true,
+      builtOverlayBaseDatabase: false,
+    },
+    checkRunId !== undefined && checkRunId >= 0 ? checkRunId : undefined,
+  );
+
+  const diskUsage = await checkDiskUsage(logger);
+  if (diskUsage === undefined) {
+    logger.warning(
+      "Unable to save overlay status to the Actions cache because the available disk space could not be determined.",
+    );
+    return;
+  }
+
+  const saved = await saveOverlayStatus(
+    codeql,
+    config.languages,
+    diskUsage,
+    overlayStatus,
+    logger,
+  );
+
+  const blurb =
+    "This job attempted to run with improved incremental analysis but it did not complete successfully. " +
+    "One possible reason for this is disk space constraints, since improved incremental analysis can " +
+    "require a significant amount of disk space for some repositories.";
+
+  if (saved) {
+    logger.error(
+      `${blurb} ` +
+        "This failure has been recorded in the Actions cache, so the next CodeQL analysis will run " +
+        "without improved incremental analysis. If you want to enable improved incremental analysis, " +
+        "try increasing the disk space available to the runner. " +
+        "If that doesn't help, contact GitHub Support for further assistance.",
+    );
+  } else {
+    logger.error(
+      `${blurb} ` +
+        "The attempt to save this failure status to the Actions cache failed. The Action will attempt to " +
+        "run with improved incremental analysis again.",
+    );
+  }
+}
+
+async function removeUploadedSarif(
+  uploadFailedSarifResult: UploadFailedSarifResult,
+  logger: Logger,
+) {
+  const sarifID = uploadFailedSarifResult.sarifID;
+  if (sarifID) {
+    logger.startGroup("Deleting failed SARIF upload");
+    logger.info(
+      `In test mode, therefore deleting the failed analysis to avoid impacting tool status for the Action repository. SARIF ID to delete: ${sarifID}.`,
+    );
+    const client = getApiClient();
+
+    try {
+      const repositoryNwo = getRepositoryNwo();
+
+      // Wait to make sure the analysis is ready for download before requesting it.
+      await delay(5000);
+
+      // Get the analysis associated with the uploaded sarif
+      const analysisInfo = await client.request(
+        "GET /repos/:owner/:repo/code-scanning/analyses?sarif_id=:sarif_id",
+        {
+          owner: repositoryNwo.owner,
+          repo: repositoryNwo.repo,
+          sarif_id: sarifID,
+        },
+      );
+
+      // Delete the analysis.
+      if (analysisInfo.data.length === 1) {
+        const analysis = analysisInfo.data[0];
+        logger.info(`Analysis ID to delete: ${analysis.id}.`);
+        try {
+          await client.request(
+            "DELETE /repos/:owner/:repo/code-scanning/analyses/:analysis_id?confirm_delete",
+            {
+              owner: repositoryNwo.owner,
+              repo: repositoryNwo.repo,
+              analysis_id: analysis.id,
+            },
+          );
+          logger.info(`Analysis deleted.`);
+        } catch (e) {
+          const origMessage = getErrorMessage(e);
+          const newMessage = origMessage.includes(
+            "No analysis found for analysis ID",
+          )
+            ? `Analysis ${analysis.id} does not exist. It was likely already deleted.`
+            : origMessage;
+          throw new Error(newMessage);
+        }
+      } else {
+        throw new Error(
+          `Expected to find exactly one analysis with sarif_id ${sarifID}. Found ${analysisInfo.data.length}.`,
+        );
+      }
+    } catch (e) {
+      throw new Error(
+        `Failed to delete uploaded SARIF analysis. Reason: ${getErrorMessage(
+          e,
+        )}`,
+      );
+    } finally {
+      logger.endGroup();
+    }
+  } else {
+    logger.warning(
+      "Could not delete the uploaded SARIF analysis because a SARIF ID wasn't provided by the API when uploading the SARIF file.",
+    );
+  }
+}

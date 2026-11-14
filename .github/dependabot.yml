@@ -1,0 +1,129 @@
+version: 2
+updates:
+  # 1. GitHub Actions (Root)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+
+  # 1B. GitHub Actions (Custom Actions Directory)
+  - package-ecosystem: "github-actions"
+    directory: "/.github/actions"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+
+  # 2. Docker Base Images (Tuesday)
+  - package-ecosystem: "docker"
+    directory: "/src"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - "dependencies"
+      - "docker"
+    groups:
+      all-docker:
+        patterns:
+          - "*"
+
+  # 3. Node.js / npm (CodeQL Action Directory)
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/codeql-action"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(codeql-action)"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "github-actions"
+    groups:
+      all-codeql-action-npm:
+        patterns:
+          - "*"
+
+  # 4. Python / pip (Thursday)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(pip)"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      all-pip:
+        patterns:
+          - "*"
+
+  # 4B. Python / pip (src Directory)
+  - package-ecosystem: "pip"
+    directory: "/src"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(pip-src)"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      all-pip-src:
+        patterns:
+          - "*"
+

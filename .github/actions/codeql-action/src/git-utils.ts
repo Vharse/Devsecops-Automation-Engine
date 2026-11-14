@@ -1,0 +1,472 @@
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+import * as core from "@actions/core";
+import { ExecOptions } from "@actions/exec";
+import * as toolrunner from "@actions/exec/lib/toolrunner";
+import * as io from "@actions/io";
+import * as semver from "semver";
+
+import {
+  getOptionalInput,
+  getWorkflowEvent,
+  getWorkflowEventName,
+} from "./actions-util";
+import { ConfigurationError, getRequiredEnvParam } from "./util";
+
+/**
+ * Minimum Git version required for overlay analysis in repositories that
+ * contain submodules. Support for using the `git ls-files
+ * --recurse-submodules` option with `--stage` was added in Git 2.36.0.
+ */
+export const GIT_MINIMUM_VERSION_FOR_OVERLAY_WITH_SUBMODULES = "2.36.0";
+
+/**
+ * Git version information
+ *
+ * The full version string as reported by `git --version` may not be
+ * semver-compatible (e.g., "2.40.0.windows.1"). This class captures both
+ * the full version string and a truncated semver-compatible version string
+ * (e.g., "2.40.0").
+ */
+export class GitVersionInfo {
+  constructor(
+    /** Truncated semver-compatible version */
+    public truncatedVersion: string,
+    /** Full version string as reported by `git --version` */
+    public fullVersion: string,
+  ) {}
+
+  isAtLeast(minVersion: string): boolean {
+    return semver.gte(this.truncatedVersion, minVersion);
+  }
+}
+
+/**
+ * Gets the version of Git installed on the system and throws an error if
+ * the version cannot be determined.
+ */
+export async function getGitVersionOrThrow(): Promise<GitVersionInfo> {
+  const stdout = await runGitCommand(
+    undefined,
+    ["--version"],
+    "Failed to get git version.",
+  );
+  // Git version output can vary: "git version 2.40.0" or "git version 2.40.0.windows.1"
+  // We capture just the major.minor.patch portion to ensure semver compatibility.
+  const match = stdout.trim().match(/^git version ((\d+\.\d+\.\d+).*)$/);
+  if (match?.[1] && match?.[2]) {
+    return new GitVersionInfo(match[2], match[1]);
+  }
+  throw new Error(`Could not parse Git version from output: ${stdout.trim()}`);
+}
+
+export const runGitCommand = async function (
+  workingDirectory: string | undefined,
+  args: string[],
+  customErrorMessage: string,
+  options?: ExecOptions,
+): Promise<string> {
+  let stdout = "";
+  let stderr = "";
+  core.debug(`Running git command: git ${args.join(" ")}`);
+  try {
+    await new toolrunner.ToolRunner(await io.which("git", true), args, {
+      silent: true,
+      listeners: {
+        stdout: (data) => {
+          stdout += data.toString();
+        },
+        stderr: (data) => {
+          stderr += data.toString();
+        },
+      },
+      cwd: workingDirectory,
+      ...options,
+    }).exec();
+    return stdout;
+  } catch (error) {
+    let reason = stderr;
+    if (stderr.includes("not a git repository")) {
+      reason =
+        "The checkout path provided to the action does not appear to be a git repository.";
+    }
+    core.info(`git call failed. ${customErrorMessage} Error: ${reason}`);
+    throw error;
+  }
+};
+
+/**
+ * Gets the SHA of the commit that is currently checked out.
+ */
+export const getCommitOid = async function (
+  checkoutPath: string,
+  ref = "HEAD",
+): Promise<string> {
+  // Try to use git to get the current commit SHA. If that fails then
+  // log but otherwise silently fall back to using the SHA from the environment.
+  // The only time these two values will differ is during analysis of a PR when
+  // the workflow has changed the current commit to the head commit instead of
+  // the merge commit, which must mean that git is available.
+  // Even if this does go wrong, it's not a huge problem for the alerts to
+  // reported on the merge commit.
+  try {
+    const stdout = await runGitCommand(
+      checkoutPath,
+      ["rev-parse", ref],
+      "Continuing with commit SHA from user input or environment.",
+    );
+    return stdout.trim();
+  } catch {
+    return getOptionalInput("sha") || getRequiredEnvParam("GITHUB_SHA");
+  }
+};
+
+/**
+ * If the action was triggered by a pull request, determine the commit sha at
+ * the head of the base branch, using the merge commit that this workflow analyzes.
+ * Returns undefined if run by other triggers or the base branch commit cannot be
+ * determined.
+ */
+export const determineBaseBranchHeadCommitOid = async function (
+  checkoutPathOverride?: string,
+): Promise<string | undefined> {
+  if (getWorkflowEventName() !== "pull_request") {
+    return undefined;
+  }
+
+  const mergeSha = getRequiredEnvParam("GITHUB_SHA");
+  const checkoutPath =
+    checkoutPathOverride ?? getOptionalInput("checkout_path");
+
+  try {
+    let commitOid = "";
+    let baseOid = "";
+    let headOid = "";
+
+    const stdout = await runGitCommand(
+      checkoutPath,
+      ["show", "-s", "--format=raw", mergeSha],
+      "Will calculate the base branch SHA on the server.",
+    );
+
+    for (const data of stdout.split("\n")) {
+      if (data.startsWith("commit ") && commitOid === "") {
+        commitOid = data.substring(7);
+      } else if (data.startsWith("parent ")) {
+        if (baseOid === "") {
+          baseOid = data.substring(7);
+        } else if (headOid === "") {
+          headOid = data.substring(7);
+        }
+      }
+    }
+
+    // Let's confirm our assumptions: We had a merge commit and the parsed parent
+    // data looks correct. OIDs are either 40 (SHA-1) or 64 (SHA-256) hex characters.
+    if (
+      commitOid === mergeSha &&
+      (headOid.length === 40 || headOid.length === 64) &&
+      (baseOid.length === 40 || baseOid.length === 64)
+    ) {
+      return baseOid;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Decode, if necessary, a file path produced by Git. See
+ * https://git-scm.com/docs/git-config#Documentation/git-config.txt-corequotePath
+ * for details on how Git encodes file paths with special characters.
+ *
+ * This function works only for Git output with `core.quotePath=false`.
+ */
+export const decodeGitFilePath = function (filePath: string): string {
+  if (filePath.startsWith('"') && filePath.endsWith('"')) {
+    filePath = filePath.substring(1, filePath.length - 1);
+    return filePath.replace(
+      /\\([abfnrtv\\"]|[0-7]{1,3})/g,
+      (_match, seq: string) => {
+        switch (seq[0]) {
+          case "a":
+            return "\x07";
+          case "b":
+            return "\b";
+          case "f":
+            return "\f";
+          case "n":
+            return "\n";
+          case "r":
+            return "\r";
+          case "t":
+            return "\t";
+          case "v":
+            return "\v";
+          case "\\":
+            return "\\";
+          case '"':
+            return '"';
+          default:
+            // Both String.fromCharCode() and String.fromCodePoint() works only
+            // for constructing an entire character at once. If a Unicode
+            // character is encoded as a sequence of escaped bytes, calling these
+            // methods sequentially on the individual byte values would *not*
+            // produce the original multi-byte Unicode character. As a result,
+            // this implementation works only with the Git option core.quotePath
+            // set to false.
+            return String.fromCharCode(parseInt(seq, 8));
+        }
+      },
+    );
+  }
+  return filePath;
+};
+
+/**
+ * Get the root of the Git repository.
+ *
+ * @param sourceRoot The source root of the code being analyzed.
+ * @returns The root of the Git repository.
+ */
+export const getGitRoot = async function (
+  sourceRoot: string,
+): Promise<string | undefined> {
+  try {
+    const stdout = await runGitCommand(
+      sourceRoot,
+      ["rev-parse", "--show-toplevel"],
+      `Cannot find Git repository root from the source root ${sourceRoot}.`,
+    );
+    return stdout.trim();
+  } catch {
+    // Errors are already logged by runGitCommand()
+    return undefined;
+  }
+};
+
+/**
+ * Returns true if the Git repository has submodules registered (i.e. a
+ * `.gitmodules` file exists at the repository root).
+ *
+ * @param gitRoot The root of the Git repository.
+ */
+export function hasSubmodules(gitRoot: string): boolean {
+  return fs.existsSync(path.join(gitRoot, ".gitmodules"));
+}
+
+/**
+ * Returns the Git OIDs of all tracked files (in the index and in the working
+ * tree) that are under the given base path, including files in active
+ * submodules. Untracked files and files not under the given base path are
+ * ignored.
+ *
+ * @param basePath A path into the Git repository.
+ * @returns a map from file paths (relative to `basePath`) to Git OIDs.
+ * @throws {Error} if "git ls-files" produces unexpected output.
+ */
+export const getFileOidsUnderPath = async function (
+  basePath: string,
+): Promise<{ [key: string]: string }> {
+  // Without the --full-name flag, the path is relative to the current working
+  // directory of the git command, which is basePath.
+  //
+  // We use --stage rather than --format here because --format was only
+  // introduced in Git 2.38.0, which would limit overlay rollout.
+  //
+  // We only pass --recurse-submodules when the repository actually has
+  // submodules, because the combination of --recurse-submodules and --stage is
+  // only supported since Git 2.36.0.
+  const gitRoot = await getGitRoot(basePath);
+  const mayHaveSubmodules =
+    gitRoot === undefined ? true : hasSubmodules(gitRoot);
+  const args = mayHaveSubmodules
+    ? ["ls-files", "--recurse-submodules", "--stage"]
+    : ["ls-files", "--stage"];
+  const stdout = await runGitCommand(
+    basePath,
+    args,
+    "Cannot list Git OIDs of tracked files.",
+  );
+
+  const fileOidMap: { [key: string]: string } = {};
+  // With --stage, the output is a list of lines like:
+  // 100644 4c51bc1d9e86cd86e01b0f340cb8ce095c33b283 0\tsrc/git-utils.test.ts
+  // 100644 6b792ea543ce75d7a8a03df591e3c85311ecb64f 0\tsrc/git-utils.ts
+  // The fields are: <mode> <oid> <stage>\t<path>
+  // The OID is either 40 (SHA-1) or 64 (SHA-256) hex characters.
+  const regex = /^[0-9]+ ([0-9a-f]{40}|[0-9a-f]{64}) [0-9]+\t(.+)$/;
+  for (const line of stdout.split("\n")) {
+    if (line) {
+      const match = line.match(regex);
+      if (match) {
+        const oid = match[1];
+        const filePath = decodeGitFilePath(match[2]);
+        fileOidMap[filePath] = oid;
+      } else {
+        throw new Error(`Unexpected "git ls-files" output: ${line}`);
+      }
+    }
+  }
+  return fileOidMap;
+};
+
+function getRefFromEnv(): string {
+  // To workaround a limitation of Actions dynamic workflows not setting
+  // the GITHUB_REF in some cases, we accept also the ref within the
+  // CODE_SCANNING_REF variable. When possible, however, we prefer to use
+  // the GITHUB_REF as that is a protected variable and cannot be overwritten.
+  let refEnv: string;
+  try {
+    refEnv = getRequiredEnvParam("GITHUB_REF");
+  } catch (e) {
+    // If the GITHUB_REF is not set, we try to rescue by getting the
+    // CODE_SCANNING_REF.
+    const maybeRef = process.env["CODE_SCANNING_REF"];
+    if (maybeRef === undefined || maybeRef.length === 0) {
+      throw e;
+    }
+    refEnv = maybeRef;
+  }
+  return refEnv;
+}
+
+/**
+ * Get the ref currently being analyzed.
+ */
+export async function getRef(): Promise<string> {
+  // Will be in the form "refs/heads/master" on a push event
+  // or in the form "refs/pull/N/merge" on a pull_request event
+  const refInput = getOptionalInput("ref");
+  const shaInput = getOptionalInput("sha");
+  const checkoutPath =
+    getOptionalInput("checkout_path") ||
+    getOptionalInput("source-root") ||
+    getRequiredEnvParam("GITHUB_WORKSPACE");
+
+  const hasRefInput = !!refInput;
+  const hasShaInput = !!shaInput;
+  // If one of 'ref' or 'sha' are provided, both are required
+  if ((hasRefInput || hasShaInput) && !(hasRefInput && hasShaInput)) {
+    throw new ConfigurationError(
+      "Both 'ref' and 'sha' are required if one of them is provided.",
+    );
+  }
+
+  const ref = refInput || getRefFromEnv();
+  const sha = shaInput || getRequiredEnvParam("GITHUB_SHA");
+
+  // If the ref is a user-provided input, we have to skip logic
+  // and assume that it is really where they want to upload the results.
+  if (refInput) {
+    return refInput;
+  }
+
+  // For pull request refs we want to detect whether the workflow
+  // has run `git checkout HEAD^2` to analyze the 'head' ref rather
+  // than the 'merge' ref. If so, we want to convert the ref that
+  // we report back.
+  const pull_ref_regex = /refs\/pull\/(\d+)\/merge/;
+  if (!pull_ref_regex.test(ref)) {
+    return ref;
+  }
+
+  const head = await getCommitOid(checkoutPath, "HEAD");
+
+  // in actions/checkout@v2+ we can check if git rev-parse HEAD == GITHUB_SHA
+  // in actions/checkout@v1 this may not be true as it checks out the repository
+  // using GITHUB_REF. There is a subtle race condition where
+  // git rev-parse GITHUB_REF != GITHUB_SHA, so we must check
+  // git rev-parse GITHUB_REF == git rev-parse HEAD instead.
+  const hasChangedRef =
+    sha !== head &&
+    (await getCommitOid(
+      checkoutPath,
+      ref.replace(/^refs\/pull\//, "refs/remotes/pull/"),
+    )) !== head;
+
+  if (hasChangedRef) {
+    const newRef = ref.replace(pull_ref_regex, "refs/pull/$1/head");
+    core.debug(
+      `No longer on merge commit, rewriting ref from ${ref} to ${newRef}.`,
+    );
+    return newRef;
+  } else {
+    return ref;
+  }
+}
+
+function removeRefsHeadsPrefix(ref: string): string {
+  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+}
+
+/**
+ * Returns whether we are analyzing the default branch for the repository.
+ *
+ * This first checks the environment variable `CODE_SCANNING_IS_ANALYZING_DEFAULT_BRANCH`. This
+ * environment variable can be set in cases where repository information might not be available, for
+ * example dynamic workflows.
+ */
+export async function isAnalyzingDefaultBranch(): Promise<boolean> {
+  if (process.env.CODE_SCANNING_IS_ANALYZING_DEFAULT_BRANCH === "true") {
+    return true;
+  }
+
+  // Get the current ref and trim and refs/heads/ prefix
+  let currentRef = await getRef();
+  currentRef = removeRefsHeadsPrefix(currentRef);
+
+  const event = getWorkflowEvent();
+  let defaultBranch = event?.repository?.default_branch;
+
+  if (getWorkflowEventName() === "schedule") {
+    defaultBranch = removeRefsHeadsPrefix(getRefFromEnv());
+  }
+
+  return currentRef === defaultBranch;
+}
+
+/**
+ * Gets a list of all tracked files in the repository.
+ *
+ * @param workingDirectory The working directory, which is part of a Git repository.
+ */
+export async function listFiles(workingDirectory: string): Promise<string[]> {
+  const stdout = await runGitCommand(
+    workingDirectory,
+    ["ls-files"],
+    "Unable to list tracked files.",
+  );
+  return stdout.split(os.EOL).filter((line) => line.trim().length > 0);
+}
+
+/**
+ * Gets a list of files that have the `linguist-generated: true` attribute.
+ *
+ * @param workingDirectory The working directory, which is part of a Git repository.
+ */
+export async function getGeneratedFiles(
+  workingDirectory: string,
+): Promise<string[]> {
+  const files = await listFiles(workingDirectory);
+  const stdout = await runGitCommand(
+    workingDirectory,
+    ["check-attr", "linguist-generated", "--stdin"],
+    "Unable to check attributes of files.",
+    { input: Buffer.from(files.join(os.EOL)) },
+  );
+
+  const generatedFiles: string[] = [];
+  const regex = /^([^:]+): linguist-generated: true$/;
+  for (const result of stdout.split(os.EOL)) {
+    const match = result.match(regex);
+    if (match && match[1].trim().length > 0) {
+      generatedFiles.push(match[1].trim());
+    }
+  }
+
+  return generatedFiles;
+}

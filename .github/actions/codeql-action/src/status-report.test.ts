@@ -1,0 +1,494 @@
+import test from "ava";
+import * as sinon from "sinon";
+import * as uuid from "uuid";
+
+import * as actionsUtil from "./actions-util";
+import { Config } from "./config-utils";
+import { EnvVar, RegistryProxyVars } from "./environment";
+import { BuiltInLanguage } from "./languages";
+import { getRunnerLogger } from "./logging";
+import { ToolsSource } from "./setup-codeql";
+import type { Registry } from "./start-proxy";
+import {
+  ActionName,
+  createInitWithConfigStatusReport,
+  createStatusReportBase,
+  getActionsStatus,
+  getRegistryTypesFromEnv,
+  getJobUUID,
+  InitStatusReport,
+  InitWithConfigStatusReport,
+} from "./status-report";
+import {
+  setupTests,
+  setupActionsVars,
+  createTestConfig,
+  makeMacro,
+  getTestEnv,
+  RecordingLogger,
+  callee,
+} from "./testing-utils";
+import { BuildMode, ConfigurationError, withTmpDir, wrapError } from "./util";
+
+setupTests(test);
+
+test("getRegistryTypesFromEnv - gets unique registry types from environment", async (t) => {
+  const logger = new RecordingLogger(true);
+  const env = getTestEnv({
+    [RegistryProxyVars.PROXY_URLS]: JSON.stringify([
+      { type: "git_source", url: "https://example.com" },
+      { type: "git_source", url: "https://github.com" },
+      { type: "docker_registry", url: "https://registry.example.com" },
+    ] satisfies Array<Partial<Registry>>),
+  });
+
+  const result = getRegistryTypesFromEnv(logger, env);
+  t.deepEqual(result, ["git_source", "docker_registry"].sort().join(","));
+});
+
+test("getRegistryTypesFromEnv - returns undefined if the env var is not set", async (t) => {
+  const logger = new RecordingLogger(true);
+  const env = getTestEnv({});
+
+  const result = getRegistryTypesFromEnv(logger, env);
+  t.is(result, undefined);
+});
+
+test("getRegistryTypesFromEnv - returns undefined if the env var is not valid JSON", async (t) => {
+  const logger = new RecordingLogger(true);
+  const env = getTestEnv({ [RegistryProxyVars.PROXY_URLS]: "[" });
+
+  const result = getRegistryTypesFromEnv(logger, env);
+  t.is(result, undefined);
+});
+
+test("getRegistryTypesFromEnv - returns undefined if the env var is unexpected JSON", async (t) => {
+  const logger = new RecordingLogger(true);
+
+  t.is(
+    getRegistryTypesFromEnv(
+      logger,
+      getTestEnv({
+        // Top-level object rather than an array of objects.
+        [RegistryProxyVars.PROXY_URLS]: JSON.stringify({ type: "git_source" }),
+      }),
+    ),
+    undefined,
+  );
+  t.is(
+    getRegistryTypesFromEnv(
+      logger,
+      getTestEnv({
+        // Object has no "type" key.
+        [RegistryProxyVars.PROXY_URLS]: JSON.stringify([{}]),
+      }),
+    ),
+    undefined,
+  );
+});
+
+test("getJobUUID - generates valid UUIDs", async (t) => {
+  await callee(getJobUUID)
+    .withArgs()
+    .logs(t, "Job run UUID is ")
+    .hasEnv(t, (val) => {
+      return {
+        [EnvVar.JOB_RUN_UUID]: val,
+      };
+    })
+    .passes((val) => {
+      t.true(uuid.validate(val));
+    });
+});
+
+test("getJobUUID - retrieves existing job UUIDs", async (t) => {
+  const existingJobUuid = uuid.v4();
+  await callee(getJobUUID)
+    .withArgs()
+    .withEnv((env) => {
+      env.set(EnvVar.JOB_RUN_UUID, existingJobUuid);
+    })
+    .logs(t, `Existing job run UUID is ${existingJobUuid}.`)
+    .passes(t.deepEqual, existingJobUuid);
+});
+
+test("getJobUUID - doesn't retrieve invalid UUIDs", async (t) => {
+  const existingJobUuid = "not-a-uuid";
+  await callee(getJobUUID)
+    .withArgs()
+    .withEnv((env) => {
+      env.set(EnvVar.JOB_RUN_UUID, existingJobUuid);
+    })
+    .logs(t, `Job run UUID is `)
+    .notLogs(t, `Existing job run UUID is ${existingJobUuid}.`)
+    .passes(t.notDeepEqual, existingJobUuid);
+});
+
+function setupEnvironmentAndStub(tmpDir: string) {
+  setupActionsVars(tmpDir, tmpDir, {
+    GITHUB_EVENT_NAME: "dynamic",
+    GITHUB_RUN_ATTEMPT: "2",
+    GITHUB_RUN_ID: "100",
+  });
+
+  process.env[EnvVar.ANALYSIS_KEY] = "analysis-key";
+  process.env["ImageVersion"] = "2023.05.19.1";
+  process.env[RegistryProxyVars.PROXY_URLS] = JSON.stringify([
+    { type: "maven_repository" },
+  ] satisfies Array<Partial<Registry>>);
+
+  const getRequiredInput = sinon.stub(actionsUtil, "getRequiredInput");
+  getRequiredInput.withArgs("matrix").resolves("input/matrix");
+}
+
+test.serial("createStatusReportBase", async (t) => {
+  await withTmpDir(async (tmpDir: string) => {
+    setupEnvironmentAndStub(tmpDir);
+
+    const statusReport = await createStatusReportBase(
+      ActionName.Init,
+      "failure",
+      new Date("May 19, 2023 05:19:00"),
+      createTestConfig({
+        buildMode: BuildMode.None,
+        languages: [BuiltInLanguage.java, BuiltInLanguage.swift],
+      }),
+      { numAvailableBytes: 100, numTotalBytes: 500 },
+      getRunnerLogger(false),
+      "failure cause",
+      "exception stack trace",
+    );
+    t.truthy(statusReport);
+
+    if (statusReport !== undefined) {
+      t.is(statusReport.action_name, ActionName.Init);
+      t.is(statusReport.action_oid, "unknown");
+      t.is(typeof statusReport.action_version, "string");
+      t.is(
+        statusReport.action_started_at,
+        new Date("May 19, 2023 05:19:00").toISOString(),
+      );
+      t.is(statusReport.actions_event_name, "dynamic");
+      t.is(statusReport.analysis_key, "analysis-key");
+      t.is(statusReport.build_mode, BuildMode.None);
+      t.is(statusReport.cause, "failure cause");
+      t.is(statusReport.commit_oid, process.env["GITHUB_SHA"]!);
+      t.deepEqual(statusReport.computed_inputs, {});
+      t.is(statusReport.exception, "exception stack trace");
+      t.is(statusReport.job_name, process.env["GITHUB_JOB"] || "");
+      t.is(typeof statusReport.job_run_uuid, "string");
+      t.is(statusReport.languages, "java,swift");
+      t.is(statusReport.ref, process.env["GITHUB_REF"]!);
+      t.is(statusReport.registry_types, "maven_repository");
+      t.is(statusReport.runner_available_disk_space_bytes, 100);
+      t.is(statusReport.runner_image_version, process.env["ImageVersion"]);
+      t.is(statusReport.runner_os, process.env["RUNNER_OS"]!);
+      t.is(statusReport.started_at, process.env[EnvVar.WORKFLOW_STARTED_AT]!);
+      t.is(statusReport.status, "failure");
+      t.is(statusReport.steady_state_default_setup, false);
+      t.is(statusReport.workflow_name, process.env["GITHUB_WORKFLOW"] || "");
+      t.is(statusReport.workflow_run_attempt, 2);
+      t.is(statusReport.workflow_run_id, 100);
+    }
+  });
+});
+
+test.serial("createStatusReportBase - empty configuration", async (t) => {
+  await withTmpDir(async (tmpDir: string) => {
+    setupEnvironmentAndStub(tmpDir);
+
+    const statusReport = await createStatusReportBase(
+      ActionName.StartProxy,
+      "success",
+      new Date("May 19, 2023 05:19:00"),
+      {},
+      { numAvailableBytes: 100, numTotalBytes: 500 },
+      getRunnerLogger(false),
+    );
+
+    if (t.truthy(statusReport)) {
+      t.is(statusReport.action_name, ActionName.StartProxy);
+      t.is(statusReport.status, "success");
+    }
+  });
+});
+
+test.serial("createStatusReportBase - partial configuration", async (t) => {
+  await withTmpDir(async (tmpDir: string) => {
+    setupEnvironmentAndStub(tmpDir);
+
+    const statusReport = await createStatusReportBase(
+      ActionName.StartProxy,
+      "success",
+      new Date("May 19, 2023 05:19:00"),
+      {
+        languages: ["go"],
+      },
+      { numAvailableBytes: 100, numTotalBytes: 500 },
+      getRunnerLogger(false),
+    );
+
+    if (t.truthy(statusReport)) {
+      t.is(statusReport.action_name, ActionName.StartProxy);
+      t.is(statusReport.status, "success");
+      t.is(statusReport.languages, "go");
+    }
+  });
+});
+
+test.serial("createStatusReportBase_firstParty", async (t) => {
+  await withTmpDir(async (tmpDir: string) => {
+    setupEnvironmentAndStub(tmpDir);
+
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.UploadSarif,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      false,
+    );
+
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.Autobuild,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      true,
+    );
+
+    process.env["CODEQL_ACTION_INIT_HAS_RUN"] = "foobar";
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.UploadSarif,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      false,
+    );
+
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.Init,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      true,
+    );
+
+    process.env["CODEQL_ACTION_INIT_HAS_RUN"] = "true";
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.UploadSarif,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      true,
+    );
+
+    t.is(
+      (
+        await createStatusReportBase(
+          ActionName.Analyze,
+          "failure",
+          new Date("May 19, 2023 05:19:00"),
+          createTestConfig({}),
+          { numAvailableBytes: 100, numTotalBytes: 500 },
+          getRunnerLogger(false),
+          "failure cause",
+          "exception stack trace",
+        )
+      )?.first_party_analysis,
+      true,
+    );
+  });
+});
+
+test.serial(
+  "getActionStatus handling correctly various types of errors",
+  (t) => {
+    t.is(
+      getActionsStatus(new Error("arbitrary error")),
+      "failure",
+      "We categorise an arbitrary error as a failure",
+    );
+
+    t.is(
+      getActionsStatus(new ConfigurationError("arbitrary error")),
+      "user-error",
+      "We categorise a ConfigurationError as a user error",
+    );
+
+    t.is(
+      getActionsStatus(new Error("exit code 1"), "multiple things went wrong"),
+      "failure",
+      "getActionsStatus should return failure if passed an arbitrary error and an additional failure cause",
+    );
+
+    t.is(
+      getActionsStatus(
+        new ConfigurationError("exit code 1"),
+        "multiple things went wrong",
+      ),
+      "user-error",
+      "getActionsStatus should return user-error if passed a configuration error and an additional failure cause",
+    );
+
+    t.is(
+      getActionsStatus(),
+      "success",
+      "getActionsStatus should return success if no error is passed",
+    );
+
+    t.is(
+      getActionsStatus(new Object()),
+      "failure",
+      "getActionsStatus should return failure if passed an arbitrary object",
+    );
+
+    t.is(
+      getActionsStatus(null, "an error occurred"),
+      "failure",
+      "getActionsStatus should return failure if passed null and an additional failure cause",
+    );
+
+    t.is(
+      getActionsStatus(wrapError(new ConfigurationError("arbitrary error"))),
+      "user-error",
+      "We still recognise a wrapped ConfigurationError as a user error",
+    );
+  },
+);
+
+const testCreateInitWithConfigStatusReport = makeMacro({
+  exec: async (
+    t,
+    config: Config,
+    expectedReportProperties: Partial<InitWithConfigStatusReport>,
+  ) => {
+    await withTmpDir(async (tmpDir: string) => {
+      setupEnvironmentAndStub(tmpDir);
+
+      const statusReportBase = await createStatusReportBase(
+        ActionName.Init,
+        "failure",
+        new Date("May 19, 2023 05:19:00"),
+        config,
+        { numAvailableBytes: 100, numTotalBytes: 500 },
+        getRunnerLogger(false),
+        "failure cause",
+        "exception stack trace",
+      );
+
+      if (t.truthy(statusReportBase)) {
+        const initStatusReport: InitStatusReport = {
+          ...statusReportBase,
+          tools_input: "",
+          tools_resolved_version: "foo",
+          tools_source: ToolsSource.Unknown,
+          workflow_languages: "actions",
+        };
+
+        const initWithConfigStatusReport =
+          await createInitWithConfigStatusReport(
+            config,
+            initStatusReport,
+            undefined,
+            1024,
+            undefined,
+            undefined,
+          );
+
+        if (t.truthy(initWithConfigStatusReport)) {
+          t.like(initWithConfigStatusReport, expectedReportProperties);
+        }
+      }
+    });
+  },
+  title: (title) => `createInitWithConfigStatusReport: ${title}`,
+});
+
+testCreateInitWithConfigStatusReport.serial(
+  "returns a value",
+  createTestConfig({
+    buildMode: BuildMode.None,
+    languages: [BuiltInLanguage.java, BuiltInLanguage.swift],
+  }),
+  {
+    trap_cache_download_size_bytes: 1024,
+    registries: "[]",
+    query_filters: "[]",
+    packs: "{}",
+  },
+);
+
+testCreateInitWithConfigStatusReport.serial(
+  "includes packs for a single language",
+  createTestConfig({
+    buildMode: BuildMode.None,
+    languages: [BuiltInLanguage.java],
+    computedConfig: {
+      packs: ["foo", "bar"],
+    },
+  }),
+  {
+    registries: "[]",
+    query_filters: "[]",
+    packs: JSON.stringify({ java: ["foo", "bar"] }),
+  },
+);
+
+testCreateInitWithConfigStatusReport.serial(
+  "includes packs for multiple languages",
+  createTestConfig({
+    buildMode: BuildMode.None,
+    languages: [BuiltInLanguage.java, BuiltInLanguage.swift],
+    computedConfig: {
+      packs: { java: ["java-foo", "java-bar"], swift: ["swift-bar"] },
+    },
+  }),
+  {
+    registries: "[]",
+    query_filters: "[]",
+    packs: JSON.stringify({
+      java: ["java-foo", "java-bar"],
+      swift: ["swift-bar"],
+    }),
+  },
+);

@@ -1,0 +1,5 @@
+[allowlist]
+description = "Ignore vendorized action bundles and compiled dist/lib files"
+paths = [
+  '''\.github/actions/.*'''
+]

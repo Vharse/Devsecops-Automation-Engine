@@ -1,0 +1,687 @@
+import * as path from "path";
+
+import * as yaml from "js-yaml";
+import * as jsonschema from "jsonschema";
+import * as semver from "semver";
+
+import {
+  addNoLanguageDiagnostic,
+  makeTelemetryDiagnostic,
+} from "../diagnostics";
+import * as errorMessages from "../error-messages";
+import {
+  RepositoryProperties,
+  RepositoryPropertyName,
+} from "../feature-flags/properties";
+import * as json from "../json";
+import { Language } from "../languages";
+import { Logger } from "../logging";
+import { cloneObject, ConfigurationError, prettyPrintPack } from "../util";
+
+export interface ExcludeQueryFilter {
+  exclude: Record<string, string[] | string>;
+}
+
+export interface IncludeQueryFilter {
+  include: Record<string, string[] | string>;
+}
+
+export type QueryFilter = ExcludeQueryFilter | IncludeQueryFilter;
+
+export interface QuerySpec {
+  name?: string;
+  uses: string;
+}
+
+// A set of default query suite names that are understood by the CLI.
+export const defaultSuites: Set<string> = new Set([
+  "security-experimental",
+  "security-extended",
+  "security-and-quality",
+  "code-quality",
+  "code-scanning",
+]);
+
+const ORG_SCHEMA = {
+  /** An array of model pack names. */
+  "model-packs": json.optional(json.array(json.string)),
+} as const satisfies json.Schema;
+
+/** Not intended to be provided directly by a user. */
+export type OrgType = json.FromSchema<typeof ORG_SCHEMA>;
+
+const DEFAULT_SETUP_SCHEMA = {
+  org: json.optional<OrgType>(json.object(ORG_SCHEMA)),
+} as const satisfies json.Schema;
+
+/** Not intended to be provided directly by a user. */
+export type DefaultSetupConfig = json.FromSchema<typeof DEFAULT_SETUP_SCHEMA>;
+
+/**
+ * Format of the config file supplied by the user.
+ */
+export interface UserConfig {
+  name?: string;
+  "disable-default-queries"?: boolean;
+  queries?: QuerySpec[];
+  "paths-ignore"?: string[];
+  paths?: string[];
+
+  // If this is a multi-language analysis, then the packages must be split by
+  // language. If this is a single language analysis, then no split by
+  // language is necessary.
+  packs?: Record<string, string[]> | string[];
+
+  // Set of query filters to include and exclude extra queries based on
+  // codeql query suite `include` and `exclude` properties
+  "query-filters"?: QueryFilter[];
+
+  /** An array (possibly empty or absent) of threat models to use. */
+  "threat-models"?: string[];
+
+  /**
+   * Configuration options that are reserved for us in Default Setup and
+   * not intended to be supplied directly by users.
+   */
+  "default-setup"?: DefaultSetupConfig;
+}
+
+/**
+ * A subset of the `UserConfig` schema that is known to be used by Default Setup. None of these
+ * properties may add queries, since a per-language CodeQL bundle can be used with a `config` input
+ * that only sets them.
+ */
+const DEFAULT_SETUP_CONFIG_SCHEMA = {
+  "threat-models": json.optional(json.array(json.string)),
+  "default-setup": json.optional<DefaultSetupConfig>(
+    json.object(DEFAULT_SETUP_SCHEMA),
+  ),
+} as const satisfies json.Schema;
+
+/**
+ * Returns whether `config` matches what we expect Default Setup to send in the `config` input: a
+ * mapping that only sets properties in `DEFAULT_SETUP_CONFIG_SCHEMA`, with values of the expected
+ * types.
+ */
+export function matchesDefaultSetupConfigSchema(config: UserConfig): boolean {
+  // Unless validation is enabled, `parseUserConfig` doesn't check that the YAML is a mapping.
+  if (!json.isObject(config)) {
+    return false;
+  }
+  const result = json.checkSchema(
+    DEFAULT_SETUP_CONFIG_SCHEMA,
+    config as json.UnvalidatedObject<any>,
+  );
+  // `valid` doesn't account for unknown properties.
+  return result.valid && result.unknownKeys.length === 0;
+}
+
+/**
+ * Merges supported properties from two configuration files. This is intended only for
+ * use with merging the `config` input provided by Default Setup with a potentially
+ * richer configuration file provided by a user.
+ *
+ * @param logger The logger to use.
+ * @param fromConfigInput The configuration from Default Setup.
+ * @param fromConfigFile The user-supplied configuration.
+ * @returns The combination of both configuration files.
+ */
+export function mergeDefaultSetupAndUserConfigs(
+  logger: Logger,
+  fromConfigInput: UserConfig,
+  fromConfigFile: UserConfig,
+): UserConfig {
+  logger.debug(
+    "Combining configuration files from 'config' and 'config-file' inputs",
+  );
+
+  // Check for unexpected keys in the configuration from the `config` input
+  // that was provided by Default Setup. This should only contain the keys
+  // we would expect to receive from Default Setup.
+  const schemaCheckResult = json.checkSchema(
+    DEFAULT_SETUP_CONFIG_SCHEMA,
+    fromConfigInput as json.UnvalidatedObject<any>,
+  );
+
+  // Report any invalid or unrecognised keys.
+  if (schemaCheckResult.invalidKeys.length > 0) {
+    logger.warning(
+      `Invalid keys in Default Setup configuration: ${schemaCheckResult.invalidKeys.join(", ")}`,
+    );
+    addNoLanguageDiagnostic(
+      undefined,
+      makeTelemetryDiagnostic(
+        "codeql-action/invalid-default-setup-config-keys",
+        "Invalid Default Setup configuration keys",
+        {
+          invalidKeys: schemaCheckResult.invalidKeys,
+        },
+        ["internal-error"],
+      ),
+    );
+  }
+  if (schemaCheckResult.unknownKeys.length > 0) {
+    logger.warning(
+      `Unrecognised keys in Default Setup configuration: ${schemaCheckResult.unknownKeys.join(", ")}`,
+    );
+    addNoLanguageDiagnostic(
+      undefined,
+      makeTelemetryDiagnostic(
+        "codeql-action/unrecognised-default-setup-config-keys",
+        "Unrecognised Default Setup configuration keys",
+        {
+          unrecognisedKeys: schemaCheckResult.unknownKeys,
+        },
+        ["internal-error"],
+      ),
+    );
+  }
+
+  // Combine all specified threat models from both sources.
+  const threatModels = new Set(fromConfigInput["threat-models"] || []);
+  for (const configFileThreatModel of fromConfigFile["threat-models"] || []) {
+    threatModels.add(configFileThreatModel);
+  }
+
+  // Warn if there is a 'default-setup' configuration key in the user-supplied configuration,
+  // since it is not meant to be used and we therefore ignore it here.
+  if (fromConfigFile["default-setup"]) {
+    logger.warning(
+      `The 'default-setup' configuration key is not supported in user-supplied configuration files and will be ignored.`,
+    );
+  }
+
+  // Since we expect the `fromConfigInput` configuration to be provided by Default Setup,
+  // we expect a limited set of options. Therefore, we base the overall configuration on
+  // the one provided via the `config-file` input, which may be richer.
+  const result = { ...fromConfigFile };
+  delete result["threat-models"];
+  delete result["default-setup"];
+
+  if (fromConfigInput["default-setup"]?.org?.["model-packs"]) {
+    result["default-setup"] = {
+      org: {
+        "model-packs": fromConfigInput["default-setup"].org["model-packs"],
+      },
+    };
+  }
+  if (threatModels.size > 0) {
+    result["threat-models"] = Array.from(threatModels);
+  }
+
+  return result;
+}
+
+/**
+ * Represents additional configuration data from a source other than
+ * a configuration file.
+ */
+interface Augmentation<T> {
+  /** Whether or not the `input` combines with data in the base config. */
+  combines: boolean;
+  /** The additional input data. */
+  input?: T;
+}
+
+/**
+ * Describes how to augment the user config with inputs from the action.
+ *
+ * When running a CodeQL analysis, the user can supply a config file. When
+ * running a CodeQL analysis from a GitHub action, the user can supply a
+ * config file _and_ a set of inputs.
+ *
+ * The inputs from the action are used to augment the user config before
+ * passing the user config to the CodeQL CLI invocation.
+ */
+export interface AugmentationProperties {
+  /**
+   * Whether or not the queries input combines with the queries in the config.
+   */
+  queriesInputCombines: boolean;
+
+  /**
+   * The queries input from the `with` block of the action declaration
+   */
+  queriesInput?: QuerySpec[];
+
+  /**
+   * Whether or not the packs input combines with the packs in the config.
+   */
+  packsInputCombines: boolean;
+
+  /**
+   * The packs input from the `with` block of the action declaration
+   */
+  packsInput?: string[];
+
+  /**
+   * Extra queries from the corresponding repository property.
+   */
+  repoPropertyQueries: Augmentation<QuerySpec[]>;
+}
+
+/**
+ * The default, empty augmentation properties. This is most useful
+ * for tests.
+ */
+export const defaultAugmentationProperties: AugmentationProperties = {
+  queriesInputCombines: false,
+  packsInputCombines: false,
+  packsInput: undefined,
+  queriesInput: undefined,
+  repoPropertyQueries: {
+    combines: false,
+    input: undefined,
+  },
+};
+
+/**
+ * The convention in this action is that an input value that is prefixed with a '+' will
+ * be combined with the corresponding value in the config file.
+ *
+ * Without a '+', an input value will override the corresponding value in the config file.
+ *
+ * @param inputValue The input value to process.
+ * @returns true if the input value should replace the corresponding value in the config file,
+ *          false if it should be appended.
+ */
+function shouldCombine(inputValue?: string): boolean {
+  return !!inputValue?.trim().startsWith("+");
+}
+
+export type Packs = Partial<Record<Language, string[]>>;
+
+export interface Pack {
+  name: string;
+  version?: string;
+  path?: string;
+}
+
+/**
+ * Pack names must be in the form of `scope/name`, with only alpha-numeric characters,
+ * and `-` allowed as long as not the first or last char.
+ **/
+const PACK_IDENTIFIER_PATTERN = (function () {
+  const alphaNumeric = "[a-z0-9]";
+  const alphaNumericDash = "[a-z0-9-]";
+  const component = `${alphaNumeric}(${alphaNumericDash}*${alphaNumeric})?`;
+  return new RegExp(`^${component}/${component}$`);
+})();
+
+/**
+ * Validates that this package specification is syntactically correct.
+ * It may not point to any real package, but after this function returns
+ * without throwing, we are guaranteed that the package specification
+ * is roughly correct.
+ *
+ * The CLI itself will do a more thorough validation of the package
+ * specification.
+ *
+ * A package specification looks like this:
+ *
+ * `scope/name@version:path`
+ *
+ * Version and path are optional.
+ *
+ * @param packStr the package specification to verify.
+ */
+export function parsePacksSpecification(packStr: string): Pack {
+  if (typeof packStr !== "string") {
+    throw new ConfigurationError(errorMessages.getPacksStrInvalid(packStr));
+  }
+
+  packStr = packStr.trim();
+  const atIndex = packStr.indexOf("@");
+  const colonIndex = packStr.indexOf(":", atIndex);
+  const packStart = 0;
+  const versionStart = atIndex + 1 || undefined;
+  const pathStart = colonIndex + 1 || undefined;
+  const packEnd = Math.min(
+    atIndex > 0 ? atIndex : Infinity,
+    colonIndex > 0 ? colonIndex : Infinity,
+    packStr.length,
+  );
+  const versionEnd = versionStart
+    ? Math.min(colonIndex > 0 ? colonIndex : Infinity, packStr.length)
+    : undefined;
+  const pathEnd = pathStart ? packStr.length : undefined;
+
+  const packName = packStr.slice(packStart, packEnd).trim();
+  const version = versionStart
+    ? packStr.slice(versionStart, versionEnd).trim()
+    : undefined;
+  const packPath = pathStart
+    ? packStr.slice(pathStart, pathEnd).trim()
+    : undefined;
+
+  if (!PACK_IDENTIFIER_PATTERN.test(packName)) {
+    throw new ConfigurationError(errorMessages.getPacksStrInvalid(packStr));
+  }
+  if (version) {
+    try {
+      new semver.Range(version);
+    } catch {
+      // The range string is invalid. OK to ignore the caught error
+      throw new ConfigurationError(errorMessages.getPacksStrInvalid(packStr));
+    }
+  }
+
+  if (
+    packPath &&
+    (path.isAbsolute(packPath) ||
+      // Permit using "/" instead of "\" on Windows
+      // Use `x.split(y).join(z)` as a polyfill for `x.replaceAll(y, z)` since
+      // if we used a regex we'd need to escape the path separator on Windows
+      // which seems more awkward.
+      path.normalize(packPath).split(path.sep).join("/") !==
+        packPath.split(path.sep).join("/"))
+  ) {
+    throw new ConfigurationError(errorMessages.getPacksStrInvalid(packStr));
+  }
+
+  if (!packPath && pathStart) {
+    // 0 length path
+    throw new ConfigurationError(errorMessages.getPacksStrInvalid(packStr));
+  }
+
+  return {
+    name: packName,
+    version,
+    path: packPath,
+  };
+}
+
+export function validatePackSpecification(pack: string) {
+  return prettyPrintPack(parsePacksSpecification(pack));
+}
+
+// Exported for testing
+export function parsePacksFromInput(
+  rawPacksInput: string | undefined,
+  languages: Language[],
+  packsInputCombines: boolean,
+): Packs | undefined {
+  if (!rawPacksInput?.trim()) {
+    return undefined;
+  }
+
+  if (languages.length > 1) {
+    throw new ConfigurationError(
+      "Cannot specify a 'packs' input in a multi-language analysis. Use a codeql-config.yml file instead and specify packs by language.",
+    );
+  } else if (languages.length === 0) {
+    throw new ConfigurationError(
+      "No languages specified. Cannot process the packs input.",
+    );
+  }
+
+  rawPacksInput = rawPacksInput.trim();
+  if (packsInputCombines) {
+    rawPacksInput = rawPacksInput.trim().substring(1).trim();
+    if (!rawPacksInput) {
+      throw new ConfigurationError(
+        errorMessages.getConfigFilePropertyError(
+          undefined,
+          "packs",
+          "A '+' was used in the 'packs' input to specify that you wished to add some packs to your CodeQL analysis. However, no packs were specified. Please either remove the '+' or specify some packs.",
+        ),
+      );
+    }
+  }
+
+  return {
+    [languages[0]]: rawPacksInput.split(",").reduce((packs, pack) => {
+      packs.push(validatePackSpecification(pack));
+      return packs;
+    }, [] as string[]),
+  };
+}
+
+/**
+ * Calculates how the codeql config file needs to be augmented before passing
+ * it to the CLI. The reason this is necessary is the codeql-action can be called
+ * with extra inputs from the workflow. These inputs are not part of the config
+ * and the CLI does not know about these inputs so we need to inject them into
+ * the config file sent to the CLI.
+ *
+ * @param rawPacksInput The packs input from the action configuration.
+ * @param rawQueriesInput The queries input from the action configuration.
+ * @param repositoryProperties The dictionary of repository properties.
+ * @param languages The languages that the config file is for. If the packs input
+ *    is non-empty, then there must be exactly one language. Otherwise, an
+ *    error is thrown.
+ *
+ * @returns The properties that need to be augmented in the config file.
+ *
+ * @throws An error if the packs input is non-empty and the languages input does
+ *     not have exactly one language.
+ */
+export async function calculateAugmentation(
+  rawPacksInput: string | undefined,
+  rawQueriesInput: string | undefined,
+  repositoryProperties: RepositoryProperties,
+  languages: Language[],
+): Promise<AugmentationProperties> {
+  const packsInputCombines = shouldCombine(rawPacksInput);
+  const packsInput = parsePacksFromInput(
+    rawPacksInput,
+    languages,
+    packsInputCombines,
+  );
+  const queries = parseQueriesFromInput(rawQueriesInput);
+  const repoPropertyQueries = parseQueriesFromInput(
+    repositoryProperties[RepositoryPropertyName.EXTRA_QUERIES],
+    RepositoryPropertyName.EXTRA_QUERIES,
+  );
+
+  return {
+    packsInputCombines,
+    packsInput: packsInput?.[languages[0]],
+    queriesInput: queries.input,
+    queriesInputCombines: queries.combines,
+    repoPropertyQueries,
+  };
+}
+
+/**
+ * Parses a comma-separated list of queries, which may have a '+' prefix. Entries aren't validated,
+ * so an empty entry becomes `{ uses: "" }`.
+ *
+ * @param value The list of queries.
+ * @param repositoryProperty The repository property that `value` comes from, if any. Error messages
+ *   refer to this property, or to the `queries` input if no property is given.
+ * @returns An `Augmentation` containing the parsed queries and whether `value` has a '+' prefix.
+ *   The queries are `undefined` if `value` is unset or empty.
+ * @throws A `ConfigurationError` if `value` is a '+' with no queries after it.
+ */
+export function parseQueriesFromInput(
+  value: string | undefined,
+  repositoryProperty?: RepositoryPropertyName,
+): Augmentation<QuerySpec[]> {
+  if (!value) {
+    return { combines: false, input: undefined };
+  }
+
+  const combines = shouldCombine(value);
+  const trimmedInput = combines ? value.trim().slice(1).trim() : value.trim();
+  if (combines && trimmedInput.length === 0) {
+    throw new ConfigurationError(
+      repositoryProperty !== undefined
+        ? errorMessages.getRepoPropertyError(
+            repositoryProperty,
+            errorMessages.getEmptyCombinesError(),
+          )
+        : errorMessages.getConfigFilePropertyError(
+            undefined,
+            "queries",
+            "A '+' was used in the 'queries' input to specify that you wished to add some packs to your CodeQL analysis. However, no packs were specified. Please either remove the '+' or specify some packs.",
+          ),
+    );
+  }
+  return {
+    combines,
+    input: trimmedInput.split(",").map((query) => ({ uses: query.trim() })),
+  };
+}
+
+/**
+ * Combines queries from various configuration sources.
+ *
+ * @param logger The logger to use.
+ * @param config The loaded configuration file (either `config-file` or `config` input).
+ * @param augmentationProperties Additional configuration data from other sources.
+ * @returns Returns `augmentedConfig` with `queries` set to the computed array of queries.
+ */
+function combineQueries(
+  logger: Logger,
+  config: UserConfig,
+  augmentationProperties: AugmentationProperties,
+): QuerySpec[] {
+  const result: QuerySpec[] = [];
+
+  // Query settings obtained from the repository properties have the highest precedence.
+  if (augmentationProperties.repoPropertyQueries?.input) {
+    logger.info(
+      `Found query configuration in the repository properties (${RepositoryPropertyName.EXTRA_QUERIES}): ` +
+        `${augmentationProperties.repoPropertyQueries.input.map((q) => q.uses).join(", ")}`,
+    );
+
+    // If there are queries configured as a repository property, these may be organisational
+    // settings. If they don't allow combining with other query configurations, return just the
+    // ones configured in the repository properties.
+    if (!augmentationProperties.repoPropertyQueries.combines) {
+      logger.info(
+        `The queries configured in the repository properties don't allow combining with other query settings. ` +
+          `Any queries configured elsewhere will be ignored.`,
+      );
+      return augmentationProperties.repoPropertyQueries.input;
+    } else {
+      // Otherwise, add them to the query array and continue.
+      result.push(...augmentationProperties.repoPropertyQueries.input);
+    }
+  }
+
+  // If there is a `queries` input to the Action, it has the next highest precedence.
+  if (augmentationProperties.queriesInput) {
+    // If there is a `queries` input and `queriesInputCombines` is `false`, then we don't
+    // combine it with the queries configured in the configuration file (if any). That is the
+    // original behaviour of this property. However, we DO combine it with any queries that
+    // we obtained from the repository properties, since that may be enforced by the organisation.
+    if (!augmentationProperties.queriesInputCombines) {
+      return result.concat(augmentationProperties.queriesInput);
+    } else {
+      // If they combine, add them to the query array and continue.
+      result.push(...augmentationProperties.queriesInput);
+    }
+  }
+
+  // If we get to this point, we either don't have any extra configuration inputs or all of them
+  // allow themselves to be combined with the settings from the configuration file.
+  if (config.queries) {
+    result.push(...config.queries);
+  }
+
+  return result;
+}
+
+export function generateCodeScanningConfig(
+  logger: Logger,
+  originalUserInput: UserConfig,
+  augmentationProperties: AugmentationProperties,
+): UserConfig {
+  // make a copy so we can modify it
+  const augmentedConfig = cloneObject(originalUserInput);
+
+  // Inject the queries from the input
+  augmentedConfig.queries = combineQueries(
+    logger,
+    augmentedConfig,
+    augmentationProperties,
+  );
+  logger.debug(
+    `Combined queries: ${augmentedConfig.queries?.map((q) => q.uses).join(",")}`,
+  );
+  if (augmentedConfig.queries?.length === 0) {
+    delete augmentedConfig.queries;
+  }
+
+  // Inject the packs from the input
+  if (augmentationProperties.packsInput) {
+    if (augmentationProperties.packsInputCombines) {
+      // At this point, we already know that this is a single-language analysis
+      if (Array.isArray(augmentedConfig.packs)) {
+        augmentedConfig.packs = (augmentedConfig.packs || []).concat(
+          augmentationProperties.packsInput,
+        );
+      } else if (!augmentedConfig.packs) {
+        augmentedConfig.packs = augmentationProperties.packsInput;
+      } else {
+        // At this point, we know there is only one language.
+        // If there were more than one language, an error would already have been thrown.
+        const language = Object.keys(augmentedConfig.packs)[0];
+        augmentedConfig.packs[language] = augmentedConfig.packs[
+          language
+        ].concat(augmentationProperties.packsInput);
+      }
+    } else {
+      augmentedConfig.packs = augmentationProperties.packsInput;
+    }
+  }
+  if (Array.isArray(augmentedConfig.packs) && !augmentedConfig.packs.length) {
+    delete augmentedConfig.packs;
+  }
+
+  return augmentedConfig;
+}
+
+/**
+ * Attempts to parse `contents` into a `UserConfig` value.
+ *
+ * @param logger The logger to use.
+ * @param pathInput Where `contents` came from, such as the path to a file, for use in error messages.
+ * @param contents The YAML to try and parse as a `UserConfig`.
+ * @param validateConfig Whether to validate the configuration against the schema.
+ * @returns The `UserConfig` corresponding to `contents`, if parsing was successful. Unless
+ *   `validateConfig` is set, the result might not be a mapping.
+ * @throws A `ConfigurationError` if `contents` isn't valid YAML or, when `validateConfig` is set,
+ *   isn't a valid configuration.
+ */
+export function parseUserConfig(
+  logger: Logger,
+  pathInput: string,
+  contents: string,
+  validateConfig: boolean,
+): UserConfig {
+  try {
+    const schema =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../../src/db-config-schema.json") as jsonschema.Schema;
+
+    const doc = yaml.load(contents);
+
+    if (validateConfig) {
+      const result = new jsonschema.Validator().validate(doc, schema);
+
+      if (result.errors.length > 0) {
+        for (const error of result.errors) {
+          logger.error(error.stack);
+        }
+        throw new ConfigurationError(
+          errorMessages.getInvalidConfigFileMessage(
+            pathInput,
+            result.errors.map((e) => e.stack),
+          ),
+        );
+      }
+    }
+
+    return doc as UserConfig;
+  } catch (error) {
+    if (error instanceof yaml.YAMLException) {
+      throw new ConfigurationError(
+        errorMessages.getConfigFileParseErrorMessage(pathInput, error.message),
+      );
+    }
+    throw error;
+  }
+}

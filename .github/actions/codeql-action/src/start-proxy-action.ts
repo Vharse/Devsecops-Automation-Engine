@@ -1,0 +1,195 @@
+import { ChildProcess, spawn } from "child_process";
+import * as path from "path";
+
+import * as core from "@actions/core";
+
+import { Action, ActionState, runInActions } from "./action-common";
+import * as actionsUtil from "./actions-util";
+import { getGitHubVersion } from "./api-client";
+import { FeatureEnablement, initFeatures } from "./feature-flags";
+import { BuiltInLanguage, parseBuiltInLanguage } from "./languages";
+import { Logger } from "./logging";
+import { getRepositoryNwo } from "./repository";
+import {
+  credentialToStr,
+  getCredentials,
+  getProxyBinaryPath,
+  getSafeErrorMessage,
+  ProxyInfo,
+  sendFailedStatusReport,
+  sendSuccessStatusReport,
+  Registry,
+  ProxyConfig,
+} from "./start-proxy";
+import { generateCertificateAuthority } from "./start-proxy/ca";
+import { checkProxyEnvironment } from "./start-proxy/environment";
+import { checkConnections } from "./start-proxy/reachability";
+import { ActionName } from "./status-report";
+import * as util from "./util";
+
+async function run(action: ActionState<["Base", "Logger", "Env", "Actions"]>) {
+  // To capture errors appropriately, keep as much code within the try-catch as
+  // possible, and only use safe functions outside.
+  const startedAt = action.startedAt;
+  const logger = action.logger;
+  let features: FeatureEnablement | undefined;
+  let language: BuiltInLanguage | undefined;
+
+  try {
+    // Make inputs accessible in the `post` step.
+    actionsUtil.persistInputs();
+
+    // Setup logging for the proxy
+    const tempDir = actionsUtil.getTemporaryDirectory();
+    const proxyLogFilePath = path.resolve(tempDir, "proxy.log");
+    core.saveState("proxy-log-file", proxyLogFilePath);
+
+    // Initialise FFs.
+    const repositoryNwo = getRepositoryNwo();
+    const gitHubVersion = await getGitHubVersion();
+    features = initFeatures(
+      gitHubVersion,
+      repositoryNwo,
+      actionsUtil.getTemporaryDirectory(),
+      logger,
+    );
+
+    // Get the language input.
+    const languageInput = actionsUtil.getOptionalInput("language");
+    language = languageInput ? parseBuiltInLanguage(languageInput) : undefined;
+
+    // Get the registry configurations from one of the inputs.
+    const credentials = getCredentials(
+      logger,
+      actionsUtil.getOptionalInput("registry_secrets"),
+      actionsUtil.getOptionalInput("registries_credentials"),
+      language,
+    );
+
+    if (credentials.length === 0) {
+      logger.info("No credentials found, skipping proxy setup.");
+      return;
+    }
+
+    logger.info(
+      `Credentials loaded for the following registries:\n ${credentials
+        .map((c) => credentialToStr(c))
+        .join("\n")}`,
+    );
+
+    // Check the environment for any configurations which may affect the proxy.
+    // This is a best effort process to give us insights into potential factors
+    // which may affect the operation of our proxy.
+    if (core.isDebug() || util.isInTestMode()) {
+      try {
+        await checkProxyEnvironment(logger, language);
+      } catch (err) {
+        logger.debug(
+          `Unable to inspect runner environment: ${util.getErrorMessage(err)}`,
+        );
+      }
+    }
+
+    const ca = generateCertificateAuthority();
+
+    const proxyConfig: ProxyConfig = {
+      all_credentials: credentials,
+      ca,
+    };
+
+    // Start the Proxy
+    const proxyBin = await getProxyBinaryPath({ ...action, features });
+    const proxyInfo = await startProxy(
+      proxyBin,
+      proxyConfig,
+      proxyLogFilePath,
+      logger,
+    );
+
+    // Perform best-effort checks that the private registries are reachable.
+    await checkConnections(logger, proxyInfo);
+
+    // Report success if we have reached this point.
+    await sendSuccessStatusReport(
+      startedAt,
+      {
+        languages: language === undefined ? undefined : [language],
+      },
+      proxyConfig.all_credentials.map((c) => c.type),
+      logger,
+    );
+  } catch (unwrappedError) {
+    await sendFailedStatusReport(logger, startedAt, language, unwrappedError);
+  }
+}
+
+/** Defines the `start-proxy` Action. */
+const startProxyAction: Action = {
+  name: ActionName.StartProxy,
+  run,
+  transformTelemetryError: getSafeErrorMessage,
+};
+
+export async function runWrapper() {
+  await runInActions(startProxyAction);
+}
+
+async function startProxy(
+  binPath: string,
+  config: ProxyConfig,
+  logFilePath: string,
+  logger: Logger,
+): Promise<ProxyInfo> {
+  const host = "127.0.0.1";
+  let port = 49152;
+  let subprocess: ChildProcess | undefined = undefined;
+  let tries = 5;
+  let subprocessError: Error | undefined = undefined;
+  while (tries-- > 0 && !subprocess && !subprocessError) {
+    subprocess = spawn(
+      binPath,
+      ["-addr", `${host}:${port}`, "-config", "-", "-logfile", logFilePath],
+      {
+        detached: true,
+        stdio: ["pipe", "ignore", "ignore"],
+      },
+    );
+    subprocess.unref();
+    if (subprocess.pid) {
+      core.saveState("proxy-process-pid", `${subprocess.pid}`);
+    }
+    subprocess.on("error", (error) => {
+      subprocessError = error;
+    });
+    subprocess.on("exit", (code) => {
+      if (code !== 0) {
+        // If the proxy failed to start, try a different port from the ephemeral range [49152, 65535]
+        port = Math.floor(Math.random() * (65535 - 49152) + 49152);
+        subprocess = undefined;
+      }
+    });
+    subprocess.stdin?.write(JSON.stringify(config));
+    subprocess.stdin?.end();
+    // Wait a little to allow the proxy to start
+    await util.delay(1000);
+  }
+  if (subprocessError) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw subprocessError;
+  }
+  logger.info(`Proxy started on ${host}:${port}`);
+  core.setOutput("proxy_host", host);
+  core.setOutput("proxy_port", port.toString());
+  core.setOutput("proxy_ca_certificate", config.ca.cert);
+
+  const registry_urls: Registry[] = config.all_credentials
+    .filter((credential) => credential.url !== undefined)
+    .map((credential) => ({
+      type: credential.type,
+      url: credential.url,
+      "replaces-base": credential["replaces-base"],
+    }));
+  core.setOutput("proxy_urls", JSON.stringify(registry_urls));
+
+  return { host, port, cert: config.ca.cert, registries: registry_urls };
+}

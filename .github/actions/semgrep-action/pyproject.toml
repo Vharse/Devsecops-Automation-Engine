@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "semgrep-agent"
+version = "22.3.0"
+description = ""
+authors = ["r2c <support@r2c.dev>"]
+license = "Proprietary"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0.1"
+jsonschema = "^4.4.0"
+PyYAML = "^6.0"
+
+[build-system]
+requires = ["poetry>=1.2"]
+build-backend = "poetry.masonry.api"
