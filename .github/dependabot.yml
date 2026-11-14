@@ -21,27 +21,6 @@ updates:
         patterns:
           - "*"
 
-  # 1B. GitHub Actions (Custom Actions Directory)
-  - package-ecosystem: "github-actions"
-    directory: "/.github/actions"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "Africa/Lagos"
-    cooldown:
-      default-days: 5
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore(ci)"
-    labels:
-      - "dependencies"
-      - "github-actions"
-    groups:
-      all-actions:
-        patterns:
-          - "*"
-
   # 2. Docker Base Images (Tuesday)
   - package-ecosystem: "docker"
     directory: "/src"
