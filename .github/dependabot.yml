@@ -63,7 +63,7 @@ updates:
         patterns:
           - "*"
 
-  # 3B. Node.js / npm (CodeQL Action Directory)
+  # 3. Node.js / npm (CodeQL Action Directory)
   - package-ecosystem: "npm"
     directory: "/.github/actions/codeql-action"
     schedule:
