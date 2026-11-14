@@ -90,14 +90,11 @@ jobs:
 
       - name: "Ingest Findings into DefectDojo"
         if: always()
-        env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
         run: |
           if [ -f "zap-report.json" ]; then
             echo "Uploading DAST findings to DefectDojo..."
-            curl -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            curl -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
               -F "active=true" \
               -F "verified=false" \
               -F "scan_type=ZAP Scan" \
