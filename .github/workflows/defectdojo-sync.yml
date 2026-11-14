@@ -27,7 +27,7 @@ jobs:
       DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
     steps:
       - name: Download Scan Artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e404e03eafc3ed482d30248a4
+        uses: actions/download-artifact@ccfb88d67681313437505c2a13b6528731557008 # v4.1.7
         continue-on-error: true
         with:
           path: all-reports
