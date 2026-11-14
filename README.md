@@ -1,52 +1,51 @@
-```
 DevSecOps Automation Engine
 
-An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, decoupled reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, independent Secret Scanning, Software Bill of Materials (SBOM) generation, Dynamic Application Security Testing (DAST) with authenticated scan coverage, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, centralized vulnerability management in DefectDojo, and real-time SIEM event correlation.
+An enterprise-grade, centralized DevSecOps Automation Engine designed to standardize security gates across modern CI/CD software delivery pipelines. Built with modular, decoupled reusable workflows, this engine automatically enforces Static Application Security Testing (SAST), Code Quality analysis, independent Secret Scanning, Software Bill of Materials (SBOM) generation, Dynamic Application Security Testing (DAST) with authenticated scan coverage, Infrastructure-as-Code (IaC) policy compliance, OpenSSF supply chain security posture checks, automated dependency updates via Dependabot, centralized vulnerability management in DefectDojo, and real-time SIEM event correlation.
 
 **Architecture Overview**
 
 The DevSecOps Automation Engine functions as a centralized security authority. Client repositories or local pipelines execute modular, parallel reusable workflows to enforce shift-left security before code compilation or deployment.
 
-                                        ┌─────────────────────────────────────────┐
-                                        │         Developer Push / PR             │
-                                        └────────────────────┬────────────────────┘
-                                                             │
-                                                             ▼
-                                        ┌─────────────────────────────────────────┐
-                                        │    GitHub Actions Security Workflow     │
-                                        └────────────────────┬────────────────────┘
-                                                             │
+                                       ┌─────────────────────────────────────────┐
+                                       │         Developer Push / PR             │
+                                       └────────────────────┬────────────────────┘
+                                                            │
+                                                            ▼
+                                       ┌─────────────────────────────────────────┐
+                                       │    GitHub Actions Security Workflow     │
+                                       └────────────────────┬────────────────────┘
+                                                            │
         ┌────────────────────────────┬───────────────────────┼───────────────────────┬────────────────────────────┬────────────────────────────┐
         │                            │                       │                       │                            │                            │
         ▼                            ▼                       ▼                       ▼                            ▼                            ▼
   ┌───────────┐                ┌───────────┐           ┌───────────┐           ┌───────────┐                ┌───────────┐                ┌───────────┐
   │ SAST Scan │                │  Secret   │           │ Container │           │   DAST    │                │    IaC    │                │  OpenSSF  │
   │  & Code   │                │ Scanning  │           │  & SBOM   │           │   Scan    │                │  Policy   │                │  Posture  │
-  │  Quality  │                │           │           │ Scanning  │           │  (ZAP)    │                │   Guard   │                │   Audit   │
+  │  Quality  │                │           │           │ Scanning  │           │   (ZAP)   │                │   Guard   │                │   Audit   │
   ├───────────┤                ├───────────┤           ├───────────┤           ├───────────┤                ├───────────┤                ├───────────┤
   │ Semgrep   │                │ Gitleaks  │           │ Trivy     │           │ OWASP ZAP │                │ OPA Rego  │                │ Scorecard │
   │ SonarQube │                │ Gate      │           │ SPDX SBOM │           │ Auto Plan │                │ Engine    │                │ SARIF     │
   └─────┬─────┘                └─────┬─────┘           └─────┬─────┘           └─────┬─────┘                └─────┬─────┘                └─────┬─────┘
         │                            │                       │                       │                            │                            │
         └────────────────────────────┴───────────────────────┴───────────┬───────────┴────────────────────────────┴────────────────────────────┘
-                                                                         │
-                                                                         ▼
-                                        ┌─────────────────────────────────────────┐
-                                        │    DefectDojo Vulnerability Manager     │
-                                        │ (Centralized Aggregation & SLA Tracking)│
-                                        └────────────────────┬────────────────────┘
-                                                             │
-                                                             ▼
-                                        ┌─────────────────────────────────────────┐
-                                        │    Elastic SIEM Telemetry Collector     │
-                                        │       (devsecops-pipeline-logs)         │
-                                        └────────────────────┬────────────────────┘
-                                                             │
-                                                             ▼
-                                        ┌─────────────────────────────────────────┐
-                                        │        Slack Automated Incident         │
-                                        │            Alert Dispatcher             │
-                                        └─────────────────────────────────────────┘
+                                                                           │
+                                                                           ▼
+                                       ┌─────────────────────────────────────────┐
+                                       │    DefectDojo Vulnerability Manager     │
+                                       │ (Centralized Aggregation & SLA Tracking)│
+                                       └────────────────────┬────────────────────┘
+                                                            │
+                                                            ▼
+                                       ┌─────────────────────────────────────────┐
+                                       │    Elastic SIEM Telemetry Collector     │
+                                       │        (devsecops-pipeline-logs)        │
+                                       └────────────────────┬────────────────────┘
+                                                            │
+                                                            ▼
+                                       ┌─────────────────────────────────────────┐
+                                       │        Slack Automated Incident         │
+                                       │            Alert Dispatcher             │
+                                       └─────────────────────────────────────────┘
 
 **Key Accomplishments & Technical Features**
 
@@ -83,10 +82,11 @@ The DevSecOps Automation Engine functions as a centralized security authority. C
         1. Custom Open Policy Agent rules (policies/opa/) validate Infrastructure-as-Code and container configuration files.
         2. Enforces strict evaluation (opa eval --fail) to block insecure cloud configurations prior to deployment.
 
-    **Supply Chain Security & Action Hardening**
+    **Supply Chain Security, Dependabot & Action Hardening**
 
-        1. Full Commit SHA Pinning: All third-party GitHub Actions across all workflow steps are pinned directly to immutable 40-character commit SHAs to protect against supply chain tampering.
-        2. OpenSSF Scorecard: Automatically evaluates repository posture, top-level token permissions, branch protections, and maintenance health, publishing SARIF reports directly to the GitHub Security tab.
+        1. Automated Dependency Updates (dependabot.yml): Configured Dependabot to actively monitor and automatically open pull requests for GitHub Actions workflows and pip dependencies, ensuring third-party packages stay patched against vulnerabilities.
+        2. Full Commit SHA Pinning: All third-party GitHub Actions across all workflow steps are pinned directly to immutable 40-character commit SHAs to protect against supply chain tampering.
+        3. OpenSSF Scorecard: Automatically evaluates repository posture, top-level token permissions, branch protections, and maintenance health, publishing SARIF reports directly to the GitHub Security tab.
 
     **DefectDojo Centralized Vulnerability Management (defectdojo-ingestion.yml)**
 
@@ -108,6 +108,7 @@ Plaintext
 
 Devsecops-Automation-Engine/
 ├── .github/
+│   ├── dependabot.yml              # Automated dependency updates configuration
 │   └── workflows/
 │       ├── container-sca-sbom.yml    # Container scanning & SBOM workflow
 │       ├── dast.yml                  # OWASP ZAP Dynamic Application Security Testing workflow
@@ -134,17 +135,17 @@ Devsecops-Automation-Engine/
 Required Repository Secrets
 
 To run all pipeline jobs successfully, configure these secrets under Settings → Secrets and variables → Actions:
-Secret Name	Description	Example / Scope
-SEMGREP_APP_TOKEN	(Optional) Authentication token from Semgrep AppSec	semgrep_...
-SONAR_TOKEN	Global analysis authentication token for SonarQube	sqa_...
-SONAR_HOST_URL	Endpoint URL for SonarQube server	[https://sonar.your-domain.com](https://sonar.your-domain.com)
-APP_USER	Test user credential for DAST authentication scans	dast_scanner
-APP_PASSWORD	Test user password for DAST authentication scans	SuperSecretPassword123!
-DEFECTDOJO_URL	Endpoint URL for DefectDojo instance	[https://defectdojo.your-domain.com](https://defectdojo.your-domain.com)
-DEFECTDOJO_API_KEY	User API Key for DefectDojo ingestion	Token 8a9b...
-ELASTIC_HOST	Endpoint URL for Elastic SIEM cluster	[https://elastic.your-domain.com:9243](https://elastic.your-domain.com:9243)
-ELASTIC_API_KEY	Base64 encoded Elastic API Key for log ingestion	V2...==
-SLACK_WEBHOOK_URL	(Optional) Slack Incoming Webhook URL for automated channel alerting	[https://hooks.slack.com/services/](https://hooks.slack.com/services/)...
+Secret Name    Description    Example / Scope
+SEMGREP_APP_TOKEN    (Optional) Authentication token from Semgrep AppSec    semgrep_...
+SONAR_TOKEN    Global analysis authentication token for SonarQube    sqa_...
+SONAR_HOST_URL    Endpoint URL for SonarQube server    [https://sonar.your-domain.com](https://sonar.your-domain.com)
+APP_USER    Test user credential for DAST authentication scans    dast_scanner
+APP_PASSWORD    Test user password for DAST authentication scans    SuperSecretPassword123!
+DEFECTDOJO_URL    Endpoint URL for DefectDojo instance    [https://defectdojo.your-domain.com](https://defectdojo.your-domain.com)
+DEFECTDOJO_API_KEY    User API Key for DefectDojo ingestion    Token 8a9b...
+ELASTIC_HOST    Endpoint URL for Elastic SIEM cluster    [https://elastic.your-domain.com:9243](https://elastic.your-domain.com:9243)
+ELASTIC_API_KEY    Base64 encoded Elastic API Key for log ingestion    V2...==
+SLACK_WEBHOOK_URL    (Optional) Slack Incoming Webhook URL for automated channel alerting    [https://hooks.slack.com/services/](https://hooks.slack.com/services/)...
 Usage & Integration
 Reusing this Engine in Client Repositories
 
@@ -170,4 +171,3 @@ jobs:
       checks: write
       actions: read
     secrets: inherit
-    
