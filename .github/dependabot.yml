@@ -42,6 +42,69 @@ updates:
         patterns:
           - "*"
 
+  # 1C. CodeQL Action (npm)
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/codeql-action"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "npm"
+    groups:
+      codeql-npm:
+        patterns:
+          - "*"
+
+  # 1D. Gitleaks Action (npm)
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/gitleaks-action"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "npm"
+    groups:
+      gitleaks-npm:
+        patterns:
+          - "*"
+
+  # 1E. Semgrep Action (Pip)
+  - package-ecosystem: "pip"
+    directory: "/.github/actions/semgrep-action"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Lagos"
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "pip"
+    groups:
+      semgrep-pip:
+        patterns:
+          - "*"
+
   # 2. Docker Base Images (Tuesday)
   - package-ecosystem: "docker"
     directory: "/src"
@@ -62,4 +125,3 @@ updates:
       all-docker:
         patterns:
           - "*"
-
